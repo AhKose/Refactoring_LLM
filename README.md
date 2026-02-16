@@ -1,6 +1,6 @@
 # An Empirical Analysis of LLM-Driven Refactoring for Microservice Systems
 
-This repository serves as the replication package for the workshop study evaluating the effectiveness of **Large Language Models (LLMs)** in automated architectural refactoring. It contains the datasets, experimental inputs, prompting strategies, and the resulting code artifacts used to assess the quality of LLM-generated refactorings.
+This repository serves as the replication package for the workshop study evaluating the effectiveness of **Large Language Models (LLMs)** in developer‑assisted refactoring. It contains the developer labeling, experimental inputs, prompting strategies, and the resulting code artifacts used to assess the quality of LLM-generated refactorings.
 
 ## 📌 Overview
 
