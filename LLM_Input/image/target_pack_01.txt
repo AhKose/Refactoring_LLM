@@ -1,0 +1,1840 @@
+### MANIFESTO - IMAGE SERVICE REFACTORING ###
+- Role: Senior Architect
+- Target Module: tools.descartes.teastore.image
+- Architecture: JAX-RS (Jersey)
+- Guardrails: 
+  1. API Stability: Do NOT change @Path or public method signatures.
+  2. Structural Integrity: Do NOT modify interfaces/entities modülü.
+  3. No New Dependencies: Stay within the current pom.xml limits.
+- Principles: Focus on High Cohesion, Low Coupling, and Single Responsibility.
+- Output: Return only changed files in ### FILE: <path> ... ### END FILE format.
+
+### FILE: ImageDB.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.ImageSize;
+
+/**
+ * Image database storing the relation between image names, product IDs and
+ * image IDs as well as the available image size.
+ * 
+ * @author Norbert Schmitt
+ */
+public class ImageDB {
+
+  // Internal storage container to allow mapping product IDs and image names (for
+  // non-generated images) to images
+  // with different sizes
+  private HashMap<Long, Map<Long, ImageSize>> products = new HashMap<>();
+  private HashMap<String, Map<Long, ImageSize>> webui = new HashMap<>();
+  private HashMap<Long, ImageSize> sizes = new HashMap<>();
+  private final Logger log = LoggerFactory.getLogger(ImageDB.class);
+
+  // Locking
+  private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
+  /**
+   * Standard constructor creating a new and empty image database.
+   */
+  public ImageDB() {
+
+  }
+
+  /**
+   * Copy constructor making a shallow copy of the given image database. If the
+   * database to copy is null, a {@link java.lang.NullPointerException} will be
+   * thrown.
+   * 
+   * @param copy
+   *          Image database to copy.
+   */
+  public ImageDB(ImageDB copy) {
+    if (copy == null) {
+      log.error("The supplied image database to copy is null.");
+      throw new NullPointerException("The supplied image database to copy is null.");
+    }
+
+    this.products = new HashMap<>(copy.products);
+    this.webui = new HashMap<>(copy.webui);
+    this.sizes = new HashMap<>(copy.sizes);
+  }
+
+  /**
+   * Checks whether a given image key (product ID or name) is available in the
+   * given size. If the given image key is null, a
+   * {@link java.lang.NullPointerException} will be thrown.
+   * 
+   * @param imageKey
+   *          Image key to check for
+   * @param imageSize
+   *          Image size to check for
+   * @return True if the image was found in the correct size, otherwise false
+   */
+  public boolean hasImageID(ImageDBKey imageKey, ImageSize imageSize) {
+    if (imageKey == null) {
+      log.error("The supplied image key is null.");
+      throw new NullPointerException("The supplied image key is null.");
+    }
+
+    if (imageKey.isProductKey()) {
+      return hasImageID(imageKey.getProductID(), imageSize);
+    }
+    return hasImageID(imageKey.getWebUIName(), imageSize);
+  }
+
+  /**
+   * Checks whether a given product ID is available in the given size.
+   * 
+   * @param productID
+   *          Product ID to check for
+   * @param imageSize
+   *          Image size to check for
+   * @return True if the image was found in the correct size, otherwise false
+   */
+  public boolean hasImageID(long productID, ImageSize imageSize) {
+    return findImageID(productID, imageSize, products) != 0;
+  }
+
+  /**
+   * Checks whether a given image name is available in the given size.
+   * 
+   * @param name
+   *          Image name to check for
+   * @param imageSize
+   *          Image size to check for
+   * @return True if the image was found in the correct size, otherwise false
+   */
+  public boolean hasImageID(String name, ImageSize imageSize) {
+    return findImageID(name, imageSize, webui) != 0;
+  }
+
+  /**
+   * Finds and returns the image ID for the given image key (product ID or name)
+   * and size. If the image key cannot be found or is not available in the given
+   * size, 0 will be returned. If the image key is null, a
+   * {@link java.lang.NullPointerException} will be thrown.
+   * 
+   * @param imageKey
+   *          Image key to find
+   * @param imageSize
+   *          Image size to find
+   * @return The image ID if the image with the size was found, otherwise 0
+   */
+  public long getImageID(ImageDBKey imageKey, ImageSize imageSize) {
+    if (imageKey == null) {
+      log.error("The supplied image key is null.");
+      throw new NullPointerException("The supplied image key is null.");
+    }
+
+    if (imageKey.isProductKey()) {
+      return getImageID(imageKey.getProductID(), imageSize);
+    }
+    return getImageID(imageKey.getWebUIName(), imageSize);
+  }
+
+  /**
+   * Finds and returns the image ID for the given product ID and size. If the
+   * product ID cannot be found or is not available in the given size, 0 will be
+   * returned.
+   * 
+   * @param productID
+   *          Product ID to find
+   * @param imageSize
+   *          Image size to find
+   * @return The image ID if the image with the size was found, otherwise 0
+   */
+  public long getImageID(long productID, ImageSize imageSize) {
+    return findImageID(productID, imageSize, products);
+  }
+
+  /**
+   * Finds and returns the image ID for the given image name and size. If the name
+   * cannot be found or is not available in the given size, 0 will be returned.
+   * 
+   * @param name
+   *          Image name to find
+   * @param imageSize
+   *          Image size to find
+   * @return The image ID if the image with the size was found, otherwise 0
+   */
+  public long getImageID(String name, ImageSize imageSize) {
+    return findImageID(name, imageSize, webui);
+  }
+
+  // Does actually all the heavy lifting for the getImageID methods
+  private <K> long findImageID(K key, ImageSize imageSize, HashMap<K, Map<Long, ImageSize>> db) {
+    Optional<Map.Entry<Long, ImageSize>> img = null;
+    lock.readLock().lock();
+    try {
+      img = db.getOrDefault(key, new HashMap<>()).entrySet().stream()
+          .filter(t -> t.getValue().equals(imageSize)).findFirst();
+    } finally {
+      lock.readLock().unlock();
+    }
+
+    if (img.isPresent()) {
+      return img.get().getKey();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Returns the image size for a given image ID or null if it could not be found.
+   * 
+   * @param imageID
+   *          The image ID to get the image size for
+   * @return The image size or null if the ID could not be found
+   */
+  public ImageSize getImageSize(long imageID) {
+    ImageSize result = null;
+    lock.readLock().lock();
+    try {
+      result = sizes.getOrDefault(imageID, null);
+    } finally {
+      lock.readLock().unlock();
+    }
+    return result;
+  }
+
+  /**
+   * Creates a new mapping between, an image key (either product ID or name), the
+   * unique image ID and the size of the image. If the image key or image size is
+   * null, a {@link java.lang.NullPointerException} will be thrown.
+   * 
+   * @param imageKey
+   *          The image key, either product ID or image name
+   * @param imageID
+   *          The unique image ID
+   * @param imageSize
+   *          The size of the image
+   */
+  public void setImageMapping(ImageDBKey imageKey, long imageID, ImageSize imageSize) {
+    if (imageKey == null) {
+      log.error("The supplied image key is null.");
+      throw new NullPointerException("The supplied image key is null.");
+    }
+
+    if (imageKey.isProductKey()) {
+      setImageMapping(imageKey.getProductID(), imageID, imageSize);
+    } else {
+      setImageMapping(imageKey.getWebUIName(), imageID, imageSize);
+    }
+  }
+
+  /**
+   * Creates a new mapping between, a product ID, the unique image ID and the size
+   * of the image. If the image size is null, a
+   * {@link java.lang.NullPointerException} will be thrown.
+   * 
+   * @param productID
+   *          The product ID
+   * @param imageID
+   *          The unique image ID
+   * @param imageSize
+   *          The size of the image
+   */
+  public void setImageMapping(long productID, long imageID, ImageSize imageSize) {
+    map(productID, imageID, imageSize, products);
+  }
+
+  /**
+   * Creates a new mapping between, an image name, the unique image ID and the
+   * size of the image. If the image name or size is null, a
+   * {@link java.lang.NullPointerExcpetion} will be thrown.
+   * 
+   * @param name
+   *          The image name
+   * @param imageID
+   *          The unique image ID
+   * @param imageSize
+   *          The size of the image
+   */
+  public void setImageMapping(String name, long imageID, ImageSize imageSize) {
+    if (name == null) {
+      log.error("The supplied image name is null.");
+      throw new NullPointerException("The supplied image name is null.");
+    }
+
+    map(name, imageID, imageSize, webui);
+  }
+
+  // Actually creates the image mapping
+  private <K> void map(K key, long imageID, ImageSize imageSize,
+      HashMap<K, Map<Long, ImageSize>> db) {
+    if (imageSize == null) {
+      log.error("Supplied image size is null.");
+      throw new NullPointerException("Supplied image size is null.");
+    }
+
+    // In case the product ID or image name is not known, we create a new map to
+    // store the mapping
+    Map<Long, ImageSize> images = new HashMap<>();
+
+    lock.writeLock().lock();
+    try {
+      if (db.containsKey(key)) {
+        images = db.get(key);
+      }
+
+      // Add the new mapping to the internal map and put it back into the correct
+      // database (map)
+      images.put(imageID, imageSize);
+      db.put(key, images);
+      sizes.put(imageID, imageSize);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Removes an image id from the database. This will not delete an image but just remove all connections between a 
+   * product or WebUI id and the given image id.
+   * @param imageID Image ID to remove from this database.
+   */
+  public void removeImageMapping(long imageID) {
+    lock.writeLock().lock();
+    try {
+      unmap(imageID, webui);
+      unmap(imageID, products);
+      sizes.remove(imageID);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  private <K> void unmap(long imageID, HashMap<K, Map<Long, ImageSize>> db) {
+    Map.Entry<String, Map<Long, ImageSize>> img = webui.entrySet().stream()
+        .filter(entry -> entry.getValue().containsKey(imageID)).findFirst().orElse(null);
+    if (img != null) {
+      webui.remove(img.getKey());
+    }
+  }
+}
+
+### END FILE ###
+
+### FILE: ImageDBKey.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image;
+
+/**
+ * Entry for an image database ({@link tools.descartes.teastore.image.ImageDB}). 
+ * @author Norbert Schmitt
+ */
+public class ImageDBKey {
+
+  private final long productID;
+  private final String webuiName;
+  private final boolean isProductKey;
+
+  /**
+   * This entry will represent a product id in the image database.
+   * @param productID Product id.
+   */
+  public ImageDBKey(long productID) {
+    this.productID = productID;
+    webuiName = null;
+    isProductKey = true;
+  }
+
+  /**
+   * This entry will represents a product id in the image database.
+   * @param webuiName Web UI image name.
+   */
+  public ImageDBKey(String webuiName) {
+    this.webuiName = webuiName;
+    productID = 0;
+    isProductKey = false;
+  }
+
+  /**
+   * Checks whether this image database entry represents a product or a static image for the web interface. 
+   * @return True if this image database entry represents a product id, otherwise false.
+   */
+  public boolean isProductKey() {
+    return isProductKey;
+  }
+
+  /**
+   * Returns the stored product id this entry represents or zero if it represents a web interface entry.
+   * @return Product id or zero if it is a web interface entry.
+   */
+  public long getProductID() {
+    return productID;
+  }
+
+  /**
+   * Returns the stored web interface name or NULL if it represents a product id.
+   * @return Web interface image name or NULL if it represents a product id.
+   */
+  public String getWebUIName() {
+    return webuiName;
+  }
+
+}
+
+### END FILE ###
+
+### FILE: ImageProvider.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image;
+
+import java.awt.image.BufferedImage;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.ImageSize;
+import tools.descartes.teastore.entities.ImageSizePreset;
+import tools.descartes.teastore.image.setup.ImageIDFactory;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * The actual image provider class containing the mapping between products, web interface static images, the 
+ * cache and underlying storage. Only one instance of an image provider can exist.
+ * @author Norbert Schmitt
+ */
+public enum ImageProvider {
+
+  /**
+   * Instance of the image provider.
+   */
+  IP;
+
+  /**
+   * Standard image identifier if a product or web interface image cannot be found in the cache and storage.
+   */
+  public static final String IMAGE_NOT_FOUND = "notFound";
+
+  private ImageDB db;
+  private IDataStorage<StoreImage> storage;
+  private Logger log = LoggerFactory.getLogger(ImageProvider.class);
+
+  private ImageProvider() {
+
+  }
+
+  /**
+   * Assign the image provider the mapping between products and web interface static images.
+   * @param imgDB Image database, mapping between products and web interface static images.
+   */
+  public void setImageDB(ImageDB imgDB) {
+	if (imgDB != null) {
+	  db = imgDB;
+	}
+  }
+
+  /**
+   * Assign the storage containing all available images. This can either be a cache or the actual hard drive storage.
+   * @param imgStorage Image storage containing all available images.
+   */
+  public void setStorage(IDataStorage<StoreImage> imgStorage) {
+	if (imgStorage != null) {
+      storage = imgStorage;
+	}
+  }
+
+  /**
+   * Searches and returns the requested product images in the requested sizes. If an image can not be found, the 
+   * standard "not found" image is returned. If an image is found in the incorrect size, the largest size of this image 
+   * will be scaled and the scaled version will be moved to storage and returned.
+   * @param images Map of product IDs and image sizes to search for.
+   * @return Map between product IDs and base64 encoded image data as string.
+   */
+  public Map<Long, String> getProductImages(Map<Long, ImageSize> images) {
+    Map<Long, String> result = new HashMap<>();
+    for (Map.Entry<Long, ImageSize> entry : images.entrySet()) {
+      String imgStr = getImageFor(new ImageDBKey(entry.getKey()), entry.getValue());
+      if (imgStr == null) {
+        continue;
+      }
+      result.put(entry.getKey(), imgStr);
+    }
+    return result;
+  }
+
+  /**
+   * Searches and returns the requested web interface images in the requested sizes. If an image can not be found, the 
+   * standard "not found" image is returned. If an image is found in the incorrect size, the largest size of this image 
+   * will be scaled and the scaled version will be moved to storage and returned.
+   * @param images Map of product IDs and image sizes to search for.
+   * @return Map between product IDs and base64 encoded image data as string.
+   */
+  public Map<String, String> getWebUIImages(Map<String, ImageSize> images) {
+    Map<String, String> result = new HashMap<>();
+    for (Map.Entry<String, ImageSize> entry : images.entrySet()) {
+      String imgStr = getImageFor(new ImageDBKey(entry.getKey()), entry.getValue());
+      if (imgStr == null) {
+        continue;
+      }
+      result.put(entry.getKey(), imgStr);
+    }
+    return result;
+  }
+
+  private StoreImage scaleAndRegisterImg(BufferedImage image, ImageDBKey key, ImageSize size) {
+    StoreImage storedImg = new StoreImage(ImageIDFactory.ID.getNextImageID(),
+        ImageScaler.scale(image, size), size);
+    db.setImageMapping(key, storedImg.getId(), size);
+    storage.saveData(storedImg);
+    return storedImg;
+  }
+
+  private String getImageFor(ImageDBKey key, ImageSize size) {
+    if (db == null || storage == null) {
+      log.warn("Image provider not correctly initialized. Missing image database and storage.");
+      return null;
+    }
+    if (key == null || size == null) {
+      log.info("Supplied image key or size are null.");
+      return null;
+    }
+    if (!key.isProductKey() && (key.getWebUIName() == null || key.getWebUIName().isEmpty())) {
+      log.info("Supplied image key invalid. Is neither web image nor product image.");
+      return null;
+    }
+
+    ImageSize stdSize = ImageSizePreset.STD_IMAGE_SIZE;
+    StoreImage storedImg = null;
+
+    // Try to retrieve image from disk or from cache
+    long imgID = db.getImageID(key, size);
+    if (imgID != 0) {
+      storedImg = storage.loadData(imgID);
+    }
+
+    // If we dont have the image in the right size, get the biggest one and scale it
+    if (storedImg == null) {
+      storedImg = storage.loadData(db.getImageID(key, stdSize));
+      if (storedImg != null) {
+        storedImg = scaleAndRegisterImg(storedImg.getImage(), key, size);
+      } else {
+        storedImg = storage.loadData(db.getImageID(IMAGE_NOT_FOUND, size));
+        if (storedImg == null) {
+          storedImg = storage.loadData(db.getImageID(IMAGE_NOT_FOUND, stdSize));
+          if (storedImg == null) {
+            return null;
+          }
+          storedImg = scaleAndRegisterImg(storedImg.getImage(), new ImageDBKey(IMAGE_NOT_FOUND),
+              size);
+        }
+      }
+    }
+
+    return storedImg.toString();
+  }
+
+}
+
+### END FILE ###
+
+### FILE: ImageScaler.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image;
+
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.ImageSize;
+
+/**
+ * Utility class with static methods to scale a
+ * {@link java.awt.image.BufferedImage} to a given size or by a given ratio,
+ * returning a copy of the {@link java.awt.image.BufferedImage} with the scaled
+ * size and identical content.
+ * 
+ * @author Norbert Schmitt
+ *
+ */
+public final class ImageScaler {
+
+  private static Logger log = LoggerFactory.getLogger(ImageScaler.class);
+
+  private ImageScaler() {
+	  
+  }
+  
+  /**
+   * Scales a given image by rendering the supplied image to the size, determined
+   * by the given {@link tools.descartes.teastore.entities.ImageSize}. The method
+   * will throw a {@link java.lang.NullPointerException} if the supplied image or
+   * size is null.
+   * 
+   * @param image
+   *          Image to scale to the given size
+   * @param size
+   *          Size to scale image to
+   * @return New image scaled to the given
+   *         {@link tools.descartes.teastore.entities.ImageSize}
+   */
+  public static BufferedImage scale(BufferedImage image, ImageSize size) {
+    if (size == null) {
+      log.error("The supplied image size is null.");
+      throw new NullPointerException("The supplied image size is null.");
+    }
+
+    return scale(image, size.getWidth(), size.getHeight());
+  }
+
+  /**
+   * Scales a given image by rendering the supplied image by the given scaling
+   * factor. Width and height are scaled by the same factor. Ratios above one will
+   * result in larger images and ratios below one will result in smaller images.
+   * The new image size is calculated by multiplying the ratio with the old image
+   * size. Numbers behind the decimal point will dropped (integer arithmetics).
+   * The method will throw an {@link java.lang.IllegalArgumentException} if the
+   * scaling factor is 0 or below. A {@link java.lang.NullPointerException} will
+   * be thrown if the supplied image is null.
+   * 
+   * @param image
+   *          Image to scale by the given ratio
+   * @param scalingFactor
+   *          Ratio to scale image
+   * @return New image scaled by the given ratio
+   */
+  public static BufferedImage scale(BufferedImage image, double scalingFactor) {
+    if (scalingFactor <= 0.0) {
+      log.error("The supplied scaling factor is 0 or below.");
+      throw new IllegalArgumentException("The supplied scaling factor is 0 or below.");
+    }
+
+    return scale(image, scalingFactor, scalingFactor);
+  }
+
+  /**
+   * Scales a given image by rendering the supplied image by the two given scaling
+   * factors for width and height. Width and height are scaled independently.
+   * Ratios above one will result in larger images and ratios below one will
+   * result in smaller images. The new image size is calculated by multiplying the
+   * ratio with the old image size. Numbers behind the decimal point will dropped
+   * (integer arithmetics). The method will throw an
+   * {@link java.lang.IllegalArgumentException} if either of the two scaling
+   * factors is 0 or below. A {@link java.lang.NullPointerException} will be
+   * thrown if the supplied image is null.
+   * 
+   * @param image
+   *          Image to scale by the two given ratio
+   * @param widthScaling
+   *          Ratio to scale image width
+   * @param heightScaling
+   *          Ratio to scale image height
+   * @return New image scaled by the given ratios
+   */
+  public static BufferedImage scale(BufferedImage image, double widthScaling,
+      double heightScaling) {
+    if (widthScaling <= 0.0) {
+      log.error("The supplied width scaling factor is 0 or below.");
+      throw new IllegalArgumentException("The supplied width scaling factor is 0 or below.");
+    }
+    if (heightScaling <= 0.0) {
+      log.error("The supplied height scaling factor is 0 or below.");
+      throw new IllegalArgumentException("The supplied height scaling factor is 0 or below.");
+    }
+
+    int newWidth = (int) (image.getWidth() * widthScaling);
+    if (newWidth == 0) {
+      newWidth = 1;
+    }
+    
+    int newHeight = (int) (image.getHeight() * heightScaling);
+    if (newHeight == 0) {
+      newHeight = 1;
+    }
+    
+    return scale(image, newWidth, newHeight);
+  }
+
+  /**
+   * Scales a given image by rendering the supplied image to the given size. The
+   * method will return a new image with the given size as width and height. The
+   * method will throw an {@link java.lang.IllegalArgumentException} if the pixel
+   * size is 0 or below. A {@link java.lang.NullPointerException} will be thrown
+   * if the supplied image is null
+   * 
+   * @param image
+   *          Image to scale to the given size
+   * @param size
+   *          Size to scale image to in pixel
+   * @return New image scaled to the given size
+   */
+  public static BufferedImage scale(BufferedImage image, int size) {
+    if (size <= 0) {
+      log.error("The supplied pixel size is below 1.");
+      throw new IllegalArgumentException("The supplied pixel size is below 1.");
+    }
+
+    return scale(image, size, size);
+  }
+
+  /**
+   * Scales a given image by rendering the supplied image with the given width and
+   * height into a new image and returning the new image. The method will throw an
+   * {@link java.lang.IllegalArgumentException} if either of the two image sizes
+   * is 0 or below. A {@link java.lang.NullPointerException} will be thrown if the
+   * supplied image is null.
+   * 
+   * @param image
+   *          Image to scale to the given width and height
+   * @param width
+   *          Width to scale image to
+   * @param height
+   *          Height to scale image to
+   * @return New image scaled to the given width and height
+   */
+  public static BufferedImage scale(BufferedImage image, int width, int height) {
+    if (image == null) {
+      log.error("The supplied image is null.");
+      throw new NullPointerException("The supplied image is null.");
+    }
+    if (width <= 0) {
+      log.error("The supplied pixel width is below 1.");
+      throw new IllegalArgumentException("The supplied pixel width is below 1.");
+    }
+    if (height <= 0) {
+      log.error("The supplied pixel height is below 1.");
+      throw new IllegalArgumentException("The supplied pixel height is below 1.");
+    }
+
+    BufferedImage scaledImg = new BufferedImage(width, height, BufferedImage.TRANSLUCENT);
+    Graphics2D graphics = scaledImg.createGraphics();
+    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+    graphics.drawImage(image, 0, 0, width, height, null);
+    graphics.dispose();
+    return scaledImg;
+  }
+}
+
+### END FILE ###
+
+### FILE: StoreImage.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Base64;
+
+import javax.imageio.ImageIO;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.ImageSize;
+import tools.descartes.teastore.image.cache.entry.ICachable;
+
+/**
+ * Entity for images provided by the image-provider service.
+ * 
+ * @author Norbert Schmitt
+ *
+ */
+public class StoreImage implements ICachable<StoreImage> {
+
+  /**
+   * Standard image format for storage (reading and writing).
+   */
+  public static final String STORE_IMAGE_FORMAT = "png";
+
+  /**
+   * String prepended in the
+   * 
+   * <pre>
+   * src
+   * </pre>
+   * 
+   * attribute of an image tag for embedding the image data.
+   */
+  public static final String STORE_IMAGE_DATA_STRING = "data:image/" + STORE_IMAGE_FORMAT
+      + ";base64,";
+
+  private final long id;
+  private byte[] data;
+  private ImageSize size;
+  private Logger log = LoggerFactory.getLogger(StoreImage.class);
+
+  /**
+   * Creates a new store image with a given id and size. The image is converted
+   * from the Java internal representation to a base64 encoded byte array.
+   * 
+   * @param id
+   *          The unique image id.
+   * @param image
+   *          The image data itself.
+   * @param size
+   *          The image size.
+   */
+  public StoreImage(final long id, BufferedImage image, ImageSize size) {
+    if (image == null) {
+      log.error("Supplied image is null.");
+      throw new NullPointerException("Supplied image is null.");
+    }
+
+    this.id = id;
+    setImage(image);
+    setImageSize(size);
+  }
+
+  /**
+   * Constructor.
+   * @param id imageId
+   * @param base64 base64 encoded byte array
+   * @param size Imagesize object
+   */
+  public StoreImage(final long id, byte[] base64, ImageSize size) {
+    if (base64 == null) {
+      log.error("Supplied base64 encoded byte array is null.");
+      throw new NullPointerException("Supplied base64 encoded byte array is null.");
+    }
+
+    this.id = id;
+    data = Arrays.copyOf(base64, base64.length);
+    setImageSize(size);
+  }
+
+  private void setImageSize(ImageSize size) {
+    if (size == null) {
+      log.error("Supplied image size is null.");
+      throw new NullPointerException("Supplied image size is null.");
+    }
+    this.size = size;
+  }
+
+  /**
+   * Copy constructor for StoreImage.
+   * 
+   * @param image
+   *          Image to copy.
+   */
+  public StoreImage(StoreImage image) {
+    if (image == null) {
+      log.error("Supplied store image is null.");
+      throw new NullPointerException("Store image is null.");
+    }
+
+    this.id = image.getId();
+    this.data = Arrays.copyOf(image.getByteArray(), image.getByteArray().length);
+    this.size = image.getSize();
+  }
+
+  /**
+   * Returns the unique image identifier.
+   * 
+   * @return Unique image id.
+   */
+  public long getId() {
+    return id;
+  }
+
+  // Converts the Java internal image representation to a byte array and encodes
+  // it in base64 for embedding.
+  private void setImage(BufferedImage image) {
+    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+    try {
+      ImageIO.write(image, STORE_IMAGE_FORMAT, stream);
+    } catch (IOException ioException) {
+      log.warn("An IOException occured while trying to write image to a stream.", ioException);
+    }
+    data = Base64.getEncoder().encode(stream.toByteArray());
+  }
+
+  /**
+   * Returns the image as the Java internal representation.
+   * 
+   * @return The image itself.
+   */
+  public BufferedImage getImage() {
+    BufferedImage image = null;
+    ByteArrayInputStream stream = new ByteArrayInputStream(Base64.getDecoder().decode(data));
+    try {
+      image = ImageIO.read(stream);
+    } catch (IOException ioException) {
+      log.warn("An IOException occured while trying to read image from stream.", ioException);
+    }
+    return image;
+  }
+
+  /**
+   * Returns the image size.
+   * 
+   * @return The image size.
+   */
+  public ImageSize getSize() {
+    return size;
+  }
+
+  /**
+   * Returns the number of bytes stored in the internal data structure.
+   * 
+   * @return Number of bytes stored for this image.
+   */
+  @Override
+  public long getByteSize() {
+    return data.length;
+  }
+
+  /**
+   * Returns the base64 encoded byte array as string.
+   * 
+   * @return Base64 encoded data as string.
+   */
+  public String getBase64() {
+    return new String(data);
+  }
+
+  /**
+   * Getter for bytearray.
+   * @return bytearray
+   */
+  public byte[] getByteArray() {
+    return Arrays.copyOf(data, data.length);
+  }
+
+  @Override
+  public String toString() {
+    return STORE_IMAGE_DATA_STRING + getBase64();
+  }
+
+  // Auto-generated
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + (int) (id ^ (id >>> 32));
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    StoreImage other = (StoreImage) obj;
+    if (id != other.getId()) {
+      return false;
+    }
+    return true;
+  }
+}
+
+### END FILE ###
+
+### FILE: cache\AbstractCache.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.Collection;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.entry.ICacheEntry;
+import tools.descartes.teastore.image.storage.IDataStorage;
+import tools.descartes.teastore.image.storage.NoStorage;
+
+/**
+ * Abstract base class for all cache implementations.
+ * @author Norbert Schmitt
+ *
+ * @param <S> Internal Storage Type.
+ * @param <T> Entry Type implementing ICachable.
+ * @param <F> Entry Wrapper Type.
+ */
+public abstract class AbstractCache<S extends Collection<F>, T extends ICachable<T>, F extends ICacheEntry<T>>
+    implements IDataCache<T> {
+
+  private IDataStorage<T> cachedStorage;
+  private S entries;
+  private long maxCacheSize;
+  private long currentCacheSize;
+  private Predicate<T> cachingRule;
+  private Logger log = LoggerFactory.getLogger(AbstractCache.class);
+  private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
+  /**
+   * Basic abstract cache constructor for subclasses.  
+   * @param entries Collection to store entries.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum memory used by the cache in bytes.
+   * @param cachingRule Caching rule determining if data should be cached.
+   */
+  public AbstractCache(S entries, IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    if (entries == null) {
+      log.error("The provided internal storage object is null.");
+      throw new NullPointerException("The provided internal storage object is null.");
+    }
+    if (cachingRule == null) {
+      log.error("The provided caching rule is null.");
+      throw new NullPointerException("The provided caching rule is null.");
+    }
+
+    if (cachedStorage == null) {
+      log.info("No underlying disk storage supplied, assuming no data is stored on disk.");
+      this.cachedStorage = new NoStorage<T>();
+    } else {
+      this.cachedStorage = cachedStorage;
+    }
+    this.entries = entries;
+    this.cachingRule = cachingRule;
+    setMaxCacheSize(maxCacheSize);
+  }
+  
+  /**
+   * Returns the storage object queried if entry cannot be found in the cache.
+   * @return Storage object.
+   */
+  protected IDataStorage<T> getCachedStorage() {
+	  return cachedStorage;
+  }
+  
+  /**
+   * Returns the collection containing all cached entries.
+   * @return Entry collection.
+   */
+  protected S getEntries() {
+	  return entries;
+  }
+
+  private F findInEntries(long id) {
+    return entries.stream().filter(entry -> entry.getId() == id).findFirst().orElse(null);
+  }
+
+  private T getData(long id, boolean markUsed) {
+    F data = null;
+    if (markUsed) {
+      lock.writeLock().lock();
+      try {
+        data = findInEntries(id);
+        if (data != null) {
+          // Set entries must be reordered. A change in the object itself will not trigger
+          // a reordering
+          reorderAndTag(data);
+        }
+      } finally {
+        lock.writeLock().unlock();
+      }
+    } else {
+      lock.readLock().lock();
+      try {
+        data = findInEntries(id);
+      } finally {
+        lock.readLock().unlock();
+      }
+    }
+    if (data != null) {
+      return data.getData();
+    }
+    return null;
+  }
+
+  /*
+   * Implementations for interface IDataCache
+   */
+
+  @Override
+  public long getMaxCacheSize() {
+    return maxCacheSize;
+  }
+
+  @Override
+  public boolean setMaxCacheSize(long maxCacheSize) {
+    if (maxCacheSize <= 0) {
+      log.error("The provided cache size is negative. Must be positive.");
+      throw new IllegalArgumentException("The provided cache size is negative. Must be positive.");
+    }
+
+    lock.writeLock().lock();
+    try {
+      this.maxCacheSize = maxCacheSize;
+      // If the new cache size is smaller than the old one, we might need to evict
+      // entries
+      while (getFreeSpace() < 0) {
+        removeEntryByCachingStrategy();
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+    return true;
+  }
+
+  @Override
+  public long getCurrentCacheSize() {
+    long size = 0;
+    lock.readLock().lock();
+    try {
+      size = currentCacheSize;
+    } finally {
+      lock.readLock().unlock();
+    }
+    return size;
+  }
+
+  @Override
+  public long getFreeSpace() {
+    return maxCacheSize - getCurrentCacheSize();
+  }
+
+  @Override
+  public boolean hasStorageFor(long size) {
+    return size <= getFreeSpace();
+  }
+
+  @Override
+  public void cacheData(T data) {
+    if (!dataIsCachable(data) || dataIsInCache(data.getId())) {
+      return;
+    }
+
+    if (data.getByteSize() > maxCacheSize) {
+      return;
+    }
+
+    lock.writeLock().lock();
+    try {
+      while (!hasStorageFor(data.getByteSize())) {
+        removeEntryByCachingStrategy();
+      }
+      addEntry(createEntry(data));
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  @Override
+  public void uncacheData(T data) {
+    lock.writeLock().lock();
+    try {
+      if (entries.remove(createEntry(data))) {
+        dataRemovedFromCache(data.getByteSize());
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  @Override
+  public boolean dataIsCachable(T data) {
+    return cachingRule.test(data);
+  }
+
+  @Override
+  public boolean dataIsInCache(long id) {
+    return getData(id, false) != null;
+  }
+
+  @Override
+  public void clearCache() {
+    lock.writeLock().lock();
+    try {
+      entries.clear();
+      currentCacheSize = 0;
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /*
+   * Implementations for interface IDataStorage
+   */
+
+  @Override
+  public boolean dataExists(long id) {
+    boolean result = false;
+    lock.readLock().lock();
+    try {
+      if (dataIsInCache(id)) {
+        result = true;
+      } else {
+        result = cachedStorage.dataExists(id);
+      }
+    } finally {
+      lock.readLock().unlock();
+    }
+    return result;
+  }
+
+  @Override
+  public T loadData(long id) {
+    // Search entry in cache
+    T entry = getData(id, true);
+    if (entry == null) {
+      // No entry in cache found, search in underlying storage
+      entry = cachedStorage.loadData(id);
+      if (entry == null) {
+        return null;
+      }
+      // Data found, cache it and return
+      cacheData(entry);
+    }
+    return entry;
+  }
+
+  @Override
+  public boolean saveData(T data) {
+    if (data == null) {
+      return false;
+    }
+
+    cacheData(data);
+    return cachedStorage.saveData(data);
+  }
+
+  @Override
+  public boolean dataIsStorable(T data) {
+    return cachedStorage.dataIsStorable(data);
+  }
+
+  @Override
+  public boolean deleteData(T data) {
+    uncacheData(data);
+    return cachedStorage.deleteData(data);
+  }
+
+  /*
+   * Modifier for current cache size
+   */
+
+  /**
+   * Changes the current memory size of this cache by subtracting the given byte size from the current size.
+   * @param size Bytes removed from cache.
+   */
+  protected void dataRemovedFromCache(long size) {
+    lock.writeLock().lock();
+    try {
+      if (size > currentCacheSize) {
+        currentCacheSize = 0;
+      } else {
+        currentCacheSize -= size;
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Changes the current memory size of this cache by adding the given byte size to the current size.
+   * @param size Bytes added to cache.
+   */
+  protected void dataAddedToCache(long size) {
+    lock.writeLock().lock();
+    try {
+      currentCacheSize += size;
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /*
+   * Abstract methods to store data that is implementation specific
+   */
+
+  /**
+   * Creates a wrapper object that can be stored in the cache, containing the given data.
+   * @param data Data to wrap in cache entry wrapper object.
+   * @return Wrapped cache entry.
+   */
+  protected abstract F createEntry(T data);
+
+  /**
+   * Inserts a given entry wrapper object into the cache.
+   * @param data Wrapper object to insert into internal collection.
+   */
+  protected void addEntry(F data) {
+    if (entries.add(data)) {
+      dataAddedToCache(data.getByteSize());
+    }
+  }
+
+  /**
+   * Evicts one entry in the cache according to the caching strategy of a specific implementation.
+   */
+  protected abstract void removeEntryByCachingStrategy();
+
+  /**
+   * Tags an element as used and restores order in the entry collection as the wrapper object has changed.
+   * @param data Wrapper object to tag as used.
+   */
+  protected void reorderAndTag(F data) {
+    // In the best case, we only have to tag the data as used
+    data.wasUsed();
+  }
+}
+
+### END FILE ###
+
+### FILE: cache\AbstractQueueCache.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.LinkedList;
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.entry.SimpleEntry;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Abstract cache class using a queue as internal collection for cache entries.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public abstract class AbstractQueueCache<T extends ICachable<T>>
+    extends AbstractCache<LinkedList<SimpleEntry<T>>, T, SimpleEntry<T>> {
+
+  /**
+   * Base constructor used by specific implementations.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum memory used by the cache in bytes.
+   * @param cachingRule Caching rule determining if data should be cached.
+   */
+  public AbstractQueueCache(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(new LinkedList<>(), cachedStorage, maxCacheSize, cachingRule);
+  }
+
+  /*
+   * Implementations of abstract superclass
+   */
+
+  @Override
+  public SimpleEntry<T> createEntry(T data) {
+    return new SimpleEntry<T>(data);
+  }
+
+  @Override
+  protected abstract void removeEntryByCachingStrategy();
+
+}
+
+### END FILE ###
+
+### FILE: cache\AbstractTreeCache.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.Comparator;
+import java.util.TreeSet;
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.entry.ICacheEntry;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Abstract cache class using a sorted tree as internal collection for cache entries.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ * @param <F> Entry Wrapper Type.
+ */
+public abstract class AbstractTreeCache<T extends ICachable<T>, F extends ICacheEntry<T>>
+    extends AbstractCache<TreeSet<F>, T, F> {
+
+  /**
+   * Base constructor used by specific implementations.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum memory used by the cache in bytes.
+   * @param cachingRule Caching rule determining if data should be cached.
+   * @param ordering Predicate determining the eviction strategy (sorting if the internal tree) if no memory is left. 
+   */
+  public AbstractTreeCache(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule, Comparator<F> ordering) {
+    super(new TreeSet<>(ordering), cachedStorage, maxCacheSize, cachingRule);
+  }
+
+  @Override
+  protected abstract F createEntry(T data);
+
+  @Override
+  protected void removeEntryByCachingStrategy() {
+    dataRemovedFromCache(getEntries().pollFirst().getByteSize());
+  }
+
+  @Override
+  protected void reorderAndTag(F data) {
+    getEntries().remove(data);
+    data.wasUsed();
+    getEntries().add(data);
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\FirstInFirstOut.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * FIFO cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class FirstInFirstOut<T extends ICachable<T>> extends AbstractQueueCache<T> {
+
+  /**
+   * FIFO cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public FirstInFirstOut() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+
+  /**
+   * FIFO cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public FirstInFirstOut(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+
+  /**
+   * FIFO cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public FirstInFirstOut(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * FIFO cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public FirstInFirstOut(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule);
+  }
+
+  @Override
+  protected void removeEntryByCachingStrategy() {
+    dataRemovedFromCache(getEntries().pollFirst().getData().getByteSize());
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\IDataCache.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Interface defining all functions available to a cache. This interface extends 
+ * {@link tools.descartes.teastore.image.storage.IDataStorage} to allow multiple cache levels.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public interface IDataCache<T extends ICachable<T>> extends IDataStorage<T> {
+
+  /**
+   * Standard cache size of 3MiB.
+   */
+  public static final long STD_MAX_CACHE_SIZE = 3 * 1024 * 1024;
+
+  /**
+   * Returns the maximum cache size in bytes.
+   * @return Maximum cache size in bytes.
+   */
+  public long getMaxCacheSize();
+
+  /**
+   * Returns the current size of the data in the cache in bytes.
+   * @return Current size of the data in the cache in bytes.
+   */
+  public long getCurrentCacheSize();
+
+  /**
+   * Returns the remaining space for data in bytes.
+   * @return Remaining space for data in bytes.
+   */
+  public long getFreeSpace();
+
+  /**
+   * Checks if there is enough space left for the given size.
+   * @param size Size to check for in bytes.
+   * @return True if the cache has enough memory left or false otherwise.
+   */
+  public boolean hasStorageFor(long size);
+
+  /**
+   * Inserts data into the cache if allowed by the caching rule. Will evict one or more entries if not enough memory 
+   * is left.
+   * @param data Data object to cache.
+   */
+  public void cacheData(T data);
+
+  /**
+   * Remove data from cache.
+   * @param data Data to be removed from cache.
+   */
+  public void uncacheData(T data);
+
+  /**
+   * Checks whether data is cachable according to the caching rule.
+   * @param data Data to be checked if it is cachable.
+   * @return True if the caching rule allows caching of the given object or false otherwise.
+   */
+  public boolean dataIsCachable(T data);
+
+  /**
+   * Checks whether a given ID resides in the cache.
+   * @param id ID to check if it resides in the cache.
+   * @return True if the data with the given ID resides in cache or false otherwise.
+   */
+  public boolean dataIsInCache(long id);
+
+  /**
+   * Resets the cache and deletes all elements from it.
+   */
+  public void clearCache();
+
+  /**
+   * Changes the maximum cache size. If the new cache size is smaller than before, entries could be evicted according 
+   * to the eviction strategy.
+   * @param cacheSize Positive maximum size of the cache in bytes.
+   * @return True if the new cache size was successfully set or false otherwise.
+   */
+  public boolean setMaxCacheSize(long cacheSize);
+
+}
+
+### END FILE ###
+
+### FILE: cache\LastInFirstOut.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * LIFO cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class LastInFirstOut<T extends ICachable<T>> extends AbstractQueueCache<T> {
+
+  /**
+   * LIFO cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public LastInFirstOut() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+  
+  /**
+   * LIFO cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public LastInFirstOut(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+  
+  /**
+   * LIFO cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LastInFirstOut(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * LIFO cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LastInFirstOut(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule);
+  }
+
+  @Override
+  protected void removeEntryByCachingStrategy() {
+    dataRemovedFromCache(getEntries().pollLast().getData().getByteSize());
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\LeastFrequentlyUsed.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.CountedEntry;
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Least frequently used (LFU) cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class LeastFrequentlyUsed<T extends ICachable<T>>
+    extends AbstractTreeCache<T, CountedEntry<T>> {
+
+  /**
+   * LFU cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public LeastFrequentlyUsed() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+
+  /**
+   * LFU cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public LeastFrequentlyUsed(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+
+  /**
+   * LFU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LeastFrequentlyUsed(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * LFU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LeastFrequentlyUsed(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule,
+        (a, b) -> {
+          if (a.getId() == b.getId()) {
+            return 0;
+          } else if (a.getUseCount() - b.getUseCount() != 0) {
+        	  return a.getUseCount() - b.getUseCount();
+          } else if (a.getId() < b.getId()) {
+        	  return -1;
+          } else {
+        	  return 1;
+          }
+        });
+  }
+
+  @Override
+  protected CountedEntry<T> createEntry(T data) {
+    return new CountedEntry<T>(data);
+  }
+
+}
+
+### END FILE ###
+

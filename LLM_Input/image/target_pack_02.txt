@@ -1,0 +1,1523 @@
+### MANIFESTO - IMAGE SERVICE REFACTORING ###
+- Role: Senior Architect
+- Target Module: tools.descartes.teastore.image
+- Architecture: JAX-RS (Jersey)
+- Guardrails: 
+  1. API Stability: Do NOT change @Path or public method signatures.
+  2. Structural Integrity: Do NOT modify interfaces/entities modülü.
+  3. No New Dependencies: Stay within the current pom.xml limits.
+- Principles: Focus on High Cohesion, Low Coupling, and Single Responsibility.
+- Output: Return only changed files in ### FILE: <path> ... ### END FILE format.
+
+### FILE: cache\LeastRecentlyUsed.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.entry.TimedEntry;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Least recently used (LRU) cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class LeastRecentlyUsed<T extends ICachable<T>> extends AbstractTreeCache<T, TimedEntry<T>> {
+
+  /**
+   * LRU cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public LeastRecentlyUsed() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+
+  /**
+   * LRU cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public LeastRecentlyUsed(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+
+  /**
+   * LRU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LeastRecentlyUsed(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * LRU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public LeastRecentlyUsed(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule,
+        (a, b) -> {
+          if (a.getTime() - b.getTime() < 0) {
+        	return -1;
+          } else if (a.getTime() - b.getTime() > 0) {
+        	return 1;
+          } else if (a.getId() < b.getId()) {
+        	return -1;
+          } else if (a.getId() == b.getId()) {
+        	return 0;
+          } else {
+        	return 1;
+          }
+        });
+  }
+
+  @Override
+  protected TimedEntry<T> createEntry(T data) {
+    return new TimedEntry<>(data);
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\MostRecentlyUsed.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.entry.TimedEntry;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Most recently used (MRU) cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class MostRecentlyUsed<T extends ICachable<T>> extends AbstractTreeCache<T, TimedEntry<T>> {
+
+  /**
+   * MRU cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public MostRecentlyUsed() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+	
+  /**
+   * MRU cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public MostRecentlyUsed(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+
+  /**
+   * MRU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public MostRecentlyUsed(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * MRU cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public MostRecentlyUsed(IDataStorage<T> cachedStorage, long maxCacheSize, Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule, (a, b) -> {
+      if (a.getTime() - b.getTime() < 0) {
+    	return 1;
+      } else if (a.getTime() - b.getTime() > 0) {
+    	return -1;
+      } else if (a.getId() < b.getId()) {
+    	return -1;
+      } else if (a.getId() == b.getId()) {
+    	return 0;
+      } else {
+    	return -1;
+      }
+    });
+  }
+
+  @Override
+  protected TimedEntry<T> createEntry(T data) {
+    return new TimedEntry<>(data);
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\RandomReplacement.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache;
+
+import java.util.Random;
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+import tools.descartes.teastore.image.cache.rules.CacheAll;
+import tools.descartes.teastore.image.storage.IDataStorage;
+
+/**
+ * Random replacement (RR) cache implementation.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class RandomReplacement<T extends ICachable<T>> extends AbstractQueueCache<T> {
+
+  private Random rand = new Random();
+
+  /**
+   * RR cache standard constructor setting the maximum cache size to the standard value 
+   * {@link tools.descartes.teastore.image.cache.IDataCache.STD_MAX_CACHE_SIZE} and allowing all data to be cached.
+   */
+  public RandomReplacement() {
+    this(IDataCache.STD_MAX_CACHE_SIZE);
+  }
+
+  /**
+   * RR cache constructor setting the maximum cache size to the given size and allowing all data to be cached.
+   * @param maxCacheSize Maximum cache size in bytes.
+   */
+  public RandomReplacement(long maxCacheSize) {
+    this(maxCacheSize, new CacheAll<T>());
+  }
+
+  /**
+   * RR cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public RandomReplacement(long maxCacheSize, Predicate<T> cachingRule) {
+    this(null, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * RR cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   */
+  public RandomReplacement(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule) {
+    super(cachedStorage, maxCacheSize, cachingRule);
+  }
+
+  /**
+   * RR cache constructor setting the maximum cache size to the given size and caching only data that is tested true 
+   * for the given caching rule. This constructor also lets you set the underlying storage, queried if an entry is not 
+   * found in the cache. The given seed will be used for the random number generator to behave deterministically.
+   * @param cachedStorage Storage object to query if an entry is not found in the cache.
+   * @param maxCacheSize Maximum cache size in bytes.
+   * @param cachingRule Cache rule determining which data will be cached.
+   * @param seed Specified seed for the random number generator.
+   */
+  public RandomReplacement(IDataStorage<T> cachedStorage, long maxCacheSize,
+      Predicate<T> cachingRule, long seed) {
+    super(cachedStorage, maxCacheSize, cachingRule);
+    setSeed(seed);
+  }
+
+  /**
+   * Sets the seed for the random number generator to the given value.
+   * @param seed Specified seed for the random number generator.
+   */
+  public void setSeed(long seed) {
+    rand.setSeed(seed);
+  }
+
+  @Override
+  protected void removeEntryByCachingStrategy() {
+    dataRemovedFromCache(getEntries().remove(rand.nextInt(getEntries().size())).getByteSize());
+  }
+
+}
+### END FILE ###
+
+### FILE: cache\entry\AbstractEntry.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Base wrapper class for cachable data types.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <D>
+ *          Cachable data that must implement
+ *          {@link tools.descartes.teastore.image.cache.entry.ICachable}
+ */
+public abstract class AbstractEntry<D extends ICachable<D>> implements ICacheEntry<D> {
+
+  private D data;
+  private Logger log = LoggerFactory.getLogger(AbstractEntry.class);
+
+  /**
+   * Basic constructor storing the cachable data. If the cachable data supplied is
+   * null, a {@link java.lang.NullPointerException} is thrown.
+   * 
+   * @param data
+   *          Cachable data
+   */
+  public AbstractEntry(D data) {
+    if (data == null) {
+      log.error("The supplied data is null.");
+      throw new NullPointerException("Supplied data is null.");
+    }
+
+    this.data = data;
+  }
+
+  @Override
+  public D getData() {
+    return data;
+  }
+
+  @Override
+  public abstract void wasUsed();
+
+  @Override
+  public long getId() {
+    return data.getId();
+  }
+
+  @Override
+  public long getByteSize() {
+    return data.getByteSize();
+  }
+
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    if (data == null) {
+      result = prime * result + 0;
+    } else {
+      result = prime * result + data.hashCode();
+    }
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    AbstractEntry<?> other = (AbstractEntry<?>) obj;
+    if (data == null) {
+      if (other.data != null) {
+        return false;
+      }
+    } else if (!data.equals(other.data)) {
+      return false;
+    }
+    return true;
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\entry\CountedEntry.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Wrapper class for caches with a replacement strategy that relies on counting
+ * how often the entry was retrieved from cache. For example the
+ * {@link tools.descartes.teastore.image.cache.LeastFrequentlyUsed}.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <D>
+ *          Cachable data that must implement
+ *          {@link tools.descartes.teastore.image.cache.entry.ICachable}
+ */
+public class CountedEntry<D extends ICachable<D>> extends AbstractEntry<D> {
+
+  private AtomicInteger useCount = new AtomicInteger();
+
+  /**
+   * Basic constructor storing the cachable data. If the cachable data supplied is
+   * null, a {@link java.lang.NullPointerException} is thrown.
+   * 
+   * @param data
+   *          Cachable data
+   */
+  public CountedEntry(D data) {
+    super(data);
+  }
+
+  /**
+   * Returns how often the entry was retrieved from cache.
+   * 
+   * @return Number of times this entry was retrieved from cache
+   */
+  public int getUseCount() {
+    return useCount.get();
+  }
+
+  @Override
+  public void wasUsed() {
+    useCount.incrementAndGet();
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\entry\ICachable.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+/**
+ * Interface that must be imlemented if it should use the cache implementations
+ * provided in the package {@link tools.descartes.teastore.image.cache}. Each
+ * cachable data type must have a unique ID and a byte size to be identifiable
+ * and the cache can determine if there is enough space left.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <D>
+ *          Data type that must implement this interface.
+ */
+public interface ICachable<D extends ICachable<D>> {
+
+  /**
+   * Returns the byte size of the cachable data.
+   * 
+   * @return The byte size of the cachable data
+   */
+  public long getByteSize();
+
+  /**
+   * Returns the unique identifier of the cachable data.
+   * 
+   * @return The unique identifier of the cachable data
+   */
+  public long getId();
+
+}
+
+### END FILE ###
+
+### FILE: cache\entry\ICacheEntry.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+/**
+ * Basic wrapper type stored by all cache implementations. It wraps the data
+ * stored in a cache.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <T>
+ *          The data type that should be cached. Must implement
+ *          {@link tools.descartes.teastore.image.cache.entry.ICachable}.
+ */
+public interface ICacheEntry<T extends ICachable<T>> extends ICachable<T> {
+
+  /**
+   * Method signaling to the wrapper that this entry was read from the cache.
+   */
+  public void wasUsed();
+
+  /**
+   * Returns the cachable data stored in this wrapper class.
+   * 
+   * @return The cachable data
+   */
+  public T getData();
+
+}
+
+### END FILE ###
+
+### FILE: cache\entry\SimpleEntry.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+/**
+ * Instantiable wrapper class not storing any additional data aparat from the
+ * cachable data.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <D>
+ *          Cachable data that must implement
+ *          {@link tools.descartes.teastore.image.cache.entry.ICachable}
+ */
+public class SimpleEntry<D extends ICachable<D>> extends AbstractEntry<D> {
+
+  /**
+   * Basic constructor storing the cachable data. If the cachable data supplied is
+   * null, a {@link java.lang.NullPointerException} is thrown.
+   * 
+   * @param data
+   *          Cachable data
+   */
+  public SimpleEntry(D data) {
+    super(data);
+  }
+
+  @Override
+  public void wasUsed() {
+    // There is nothing to do.
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\entry\TimedEntry.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.entry;
+
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Wrapper class for caches with a replacement strategy that relies on a
+ * timestamp when the entry was retrieved from cache. For example the
+ * {@link tools.descartes.teastore.image.cache.LeastRecentlyUsed} or
+ * {@link tools.descartes.teastore.image.cache.MostRecentlyUsed}.
+ * 
+ * @author Norbert Schmitt
+ *
+ * @param <D>
+ *          Cachable data that must implement
+ *          {@link tools.descartes.teastore.image.cache.entry.ICachable}
+ */
+public class TimedEntry<D extends ICachable<D>> extends AbstractEntry<D> {
+
+  private AtomicLong time = new AtomicLong();
+
+  /**
+   * Basic constructor storing the cachable data. If the cachable data supplied is
+   * null, a {@link java.lang.NullPointerException} is thrown.
+   * 
+   * @param data
+   *          Cachable data
+   */
+  public TimedEntry(D data) {
+    super(data);
+    wasUsed();
+  }
+
+  /**
+   * Returns the last time this entry was retrieved from cache.
+   * 
+   * @return The last time in nanoseconds
+   */
+  public long getTime() {
+    return time.get();
+  }
+
+  @Override
+  public void wasUsed() {
+    time.set(System.nanoTime());
+  }
+
+}
+
+### END FILE ###
+
+### FILE: cache\rules\CacheAll.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.cache.rules;
+
+import java.util.function.Predicate;
+
+import tools.descartes.teastore.image.cache.entry.ICachable;
+
+/**
+ * Standard caching rule allowing to cache all data inserted into a cache.
+ * @author Norbert Schmitt
+ *
+ * @param <T> Entry Type implementing ICachable.
+ */
+public class CacheAll<T extends ICachable<T>> implements Predicate<T> {
+
+  @Override
+  public boolean test(T t) {
+    return true;
+  }
+
+}
+
+### END FILE ###
+
+### FILE: rest\ImageProviderEndpoint.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.rest;
+
+import java.util.HashMap;
+import java.util.stream.Collectors;
+
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Response;
+
+import tools.descartes.teastore.entities.ImageSize;
+import tools.descartes.teastore.image.ImageProvider;
+import tools.descartes.teastore.image.setup.SetupController;
+
+/**
+ * The image provider REST endpoints for querying and controlling the image provider service.
+ * @author Norbert Schmitt
+ */
+@Path("image")
+@Produces({ "application/json" })
+@Consumes({ "application/json" })
+public class ImageProviderEndpoint {
+
+  /**
+   * Queries the image provider for the given product IDs in the given size, provided as strings.
+   * @param images Map of product IDs and the corresponding image size as string.
+   * @return Map of product IDs and the image data as base64 encoded string.
+   */
+  @POST
+  @Path("getProductImages")
+  public Response getProductImages(HashMap<Long, String> images) {
+    return Response.ok()
+        .entity(ImageProvider.IP.getProductImages(images.entrySet().parallelStream().collect(
+            Collectors.toMap(e -> e.getKey(), e -> ImageSize.parseImageSize(e.getValue())))))
+        .build();
+  }
+
+  /**
+   * Queries the image provider for the given web interface image names in the given size, provided as strings.
+   * @param images Map of web interface image names and the corresponding image size as string.
+   * @return Map of web interface image names and the image data as base64 encoded string.
+   */
+  @POST
+  @Path("getWebImages")
+  public Response getWebUIImages(HashMap<String, String> images) {
+    return Response.ok()
+        .entity(ImageProvider.IP.getWebUIImages(images.entrySet().parallelStream().collect(
+            Collectors.toMap(e -> e.getKey(), e -> ImageSize.parseImageSize(e.getValue())))))
+        .build();
+  }
+
+  /**
+   * Signals the image provider to regenerate all product images. This is usually necessary if the product database
+   * changed.
+   * @return Returns status code 200.
+   */
+  @GET
+  @Path("regenerateImages")
+  public Response regenerateImages() {
+    SetupController.SETUP.reconfiguration();
+    return Response.ok().build();
+  }
+
+  /**
+   * Checks if the setup of the image provider and image generation has finished.
+   * @return Returns true if the setup is finished.
+   */
+  @GET
+  @Path("finished")
+  public Response isFinished() {
+    if (SetupController.SETUP.isFinished()) {
+      return Response.ok(true).build();
+    } else {
+      return Response.serverError().entity(false).build();
+    }
+  }
+
+  /**
+   * Checks the current state, configuration settings, number of images, cache size, etc., of the image provider.
+   * @return Returns a string containing the current state and configuration.
+   */
+  @GET
+  @Path("state")
+  @Produces({ "text/plain" })
+  public Response getState() {
+    return Response.ok().entity(SetupController.SETUP.getState()).build();
+  }
+
+  /**
+   * Sets the cache size to the given value.
+   * @param cacheSize The new cache size in bytes. Cache size must be positive.
+   * @return True if the cache size was set successfully, otherwise false.
+   */
+  @POST
+  @Path("setCacheSize")
+  public Response setCacheSize(long cacheSize) {
+    return Response.ok().entity(SetupController.SETUP.setCacheSize(cacheSize)).build();
+  }
+
+}
+
+### END FILE ###
+
+### FILE: setup\CachingMode.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.setup;
+
+import java.util.Arrays;
+
+/**
+ * This enum contains the different cache implementations and their string representation.
+ * @author Norbert Schmitt
+ */
+public enum CachingMode {
+
+  /**
+   * First in first out cache.
+   */
+  FIFO("FIFO"), 
+  /**
+   * Last in first out cache.
+   */
+  LIFO("LIFO"), 
+  /**
+   * Random replacement cache.
+   */
+  RR("RR"), 
+  /**
+   * Least frequently used cache.
+   */
+  LFU("LFU"), 
+  /**
+   * Least recently used cache.
+   */
+  LRU("LRU"), 
+  /**
+   * Most recently used cache.
+   */
+  MRU("MRU"), 
+  /**
+   * Use no cache (Cache disabled).
+   */
+  NONE("Disabled");
+
+  /**
+   * Standard cache implementation used by the image provider service.
+   */
+  public static final CachingMode STD_CACHING_MODE = LFU;
+
+  private final String strRepresentation;
+
+  private CachingMode(String strRepresentation) {
+    this.strRepresentation = strRepresentation;
+  }
+
+  /**
+   * Returns the string representation of the used cache implementation.
+   * @return String representation.
+   */
+  public String getStrRepresentation() {
+    return strRepresentation;
+  }
+
+  /**
+   * Convert string representation to the correct object. Will return the standard cache implementation if the string 
+   * representation is unknown.
+   * @param strCachingMode String representation of the cache implementation.
+   * @return Enum value of the cache implementation.
+   */
+  public static CachingMode getCachingModeFromString(String strCachingMode) {
+    return Arrays.asList(CachingMode.values()).stream()
+        .filter(mode -> mode.strRepresentation.equals(strCachingMode)).findFirst()
+        .orElse(STD_CACHING_MODE);
+  }
+}
+
+### END FILE ###
+
+### FILE: setup\CachingRule.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.setup;
+
+import java.util.Arrays;
+
+/**
+ * This enum contains the different caching rule implementations and their string representation.
+ * @author Norbert Schmitt
+ */
+public enum CachingRule {
+
+  /**
+   * Cache all data without restrictions.
+   */
+  ALL("All");
+
+  /**
+   * Standard caching rule implementation used by the image provider service.
+   */
+  public static final CachingRule STD_CACHING_RULE = ALL;
+
+  private final String strRepresentation;
+
+  private CachingRule(String strRepresentation) {
+    this.strRepresentation = strRepresentation;
+  }
+
+  /**
+   * Returns the string representation of the used caching rule implementation.
+   * @return String representation.
+   */
+  public String getStrRepresentation() {
+    return strRepresentation;
+  }
+
+  /**
+   * Convert string representation to the correct object. Will return the standard caching rule implementation if the 
+   * string representation is unknown.
+   * @param strCachingRule String representation of the caching rule implementation.
+   * @return Enum value of the caching rule implementation.
+   */
+  public static CachingRule getCachingRuleFromString(String strCachingRule) {
+    return Arrays.asList(CachingRule.values()).stream()
+        .filter(mode -> mode.strRepresentation.equals(strCachingRule)).findFirst()
+        .orElse(STD_CACHING_RULE);
+  }
+}
+
+### END FILE ###
+
+### FILE: setup\CreatorFactory.java ###
+package tools.descartes.teastore.image.setup;
+
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.Category;
+import tools.descartes.teastore.entities.ImageSize;
+import tools.descartes.teastore.entities.ImageSizePreset;
+import tools.descartes.teastore.image.ImageDB;
+
+/**
+ * Helper class creating image generation runnables for image provider setup.
+ * @author Norbert Schmitt
+ */
+public class CreatorFactory {
+
+  private int shapesPerImage = 0;
+  private ImageSize imgSize = ImageSizePreset.STD_IMAGE_SIZE;
+  private Path workingDir = SetupController.SETUP.getWorkingDir();
+  private Map<Category, BufferedImage> categoryImages;
+  private List<Long> products;
+  private List<Category> categories;
+  private ImageDB imgDB;
+  private AtomicLong nrOfImagesGenerated;
+
+  private final Logger log = LoggerFactory.getLogger(CreatorFactory.class);
+
+  /**
+   * Standard constructor defining all necessary information to create image generation runnables.
+   * @param shapesPerImage Number of shapes per generated image.
+   * @param imgDB Image database to add image to.
+   * @param imgSize Size of the images to generate.
+   * @param workingDir Directory to store images.
+   * @param products Product IDs for which images will be generated.
+   * @param categoryImages Category images that are added after random shapes for the image have been generated.
+   * @param nrOfImagesGenerated Current number of images that have been generated by all runnables.
+   */
+  public CreatorFactory(int shapesPerImage, ImageDB imgDB, ImageSize imgSize, Path workingDir,
+      Map<Category, List<Long>> products, Map<Category, BufferedImage> categoryImages,
+      AtomicLong nrOfImagesGenerated) {
+    if (imgDB == null) {
+      log.error("Supplied image database is null.");
+      throw new NullPointerException("Supplied image database is null.");
+    }
+    if (products == null) {
+      log.error("Supplied product map is null.");
+      throw new NullPointerException("Supplied product map is null.");
+    }
+    if (nrOfImagesGenerated == null) {
+      log.error("Supplied counter for images generated is null.");
+      throw new NullPointerException("Supplied counter for images generated is null.");
+    }
+
+    if (workingDir == null) {
+      log.info("Supplied working directory is null. Set to value {}.",
+          SetupController.SETUP.getWorkingDir());
+    } else {
+      this.workingDir = workingDir;
+    }
+    if (categoryImages == null) {
+      log.info("Supplied category images are null. Defaulting to not add category images.");
+    } else {
+      this.categoryImages = categoryImages;
+    }
+    if (imgSize == null) {
+      log.info("Supplied image size is null. Defaulting to standard size of {}.",
+          ImageSizePreset.STD_IMAGE_SIZE);
+    } else {
+      this.imgSize = imgSize;
+    }
+    if (shapesPerImage < 0) {
+      log.info("Number of shapes per image cannot be below 0, was {}. Set to 0.", shapesPerImage);
+    } else {
+      this.shapesPerImage = shapesPerImage;
+    }
+    this.products = products.entrySet().stream().flatMap(e -> e.getValue().stream())
+        .collect(Collectors.toList());
+    this.categories = products.entrySet().stream()
+        .flatMap(e -> e.getValue().stream().map(x -> e.getKey())).collect(Collectors.toList());
+    this.imgDB = imgDB;
+    this.nrOfImagesGenerated = nrOfImagesGenerated;
+  }
+
+  /**
+   * Create the image generation runnable.
+   * @return Image generation runnable.
+   */
+  public Runnable newRunnable() {
+    return new CreatorRunner(imgDB, imgSize, products.remove(0), shapesPerImage,
+        categoryImages.getOrDefault(categories.remove(0), null), workingDir, nrOfImagesGenerated);
+  }
+
+}
+
+### END FILE ###
+
+### FILE: setup\CreatorRunner.java ###
+package tools.descartes.teastore.image.setup;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Base64;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
+
+import javax.imageio.ImageIO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import tools.descartes.teastore.entities.ImageSize;
+import tools.descartes.teastore.entities.ImageSizePreset;
+import tools.descartes.teastore.image.ImageDB;
+import tools.descartes.teastore.image.StoreImage;
+
+/**
+ * Image generation runnable to generate a single image. 
+ * @author Norbert Schmitt
+ *
+ */
+public class CreatorRunner implements Runnable {
+
+  private final long productID;
+  private final ImageDB imgDB;
+  private final ImageSize size;
+  private final Path workingDir;
+  private final int shapesPerImage;
+  private final BufferedImage categoryImage;
+  private final AtomicLong nrOfImagesGenerated;
+
+  private final Logger log = LoggerFactory.getLogger(CreatorRunner.class);
+
+  /**
+   * Creates a new runnable object to generate a single image.
+   * @param imgDB Image database to add image to.
+   * @param size Size of the images to generate
+   * @param productID Product ID for which the images will be generated.
+   * @param shapesPerImage Number of shapes per generated image.
+   * @param categoryImage Category images that are added after random shapes for the image have been generated.
+   * @param workingDir Directory to store image.
+   * @param nrOfImagesGenerated Current number of images that have been generated by all runnables.
+   */
+  public CreatorRunner(ImageDB imgDB, ImageSize size, long productID, int shapesPerImage,
+      BufferedImage categoryImage, Path workingDir, AtomicLong nrOfImagesGenerated) {
+    this.imgDB = imgDB;
+    this.productID = productID;
+    this.shapesPerImage = shapesPerImage;
+    this.categoryImage = categoryImage;
+    this.workingDir = workingDir;
+    this.nrOfImagesGenerated = nrOfImagesGenerated;
+    if (size != null) {
+      this.size = size;
+    } else {
+      this.size = ImageSizePreset.STD_IMAGE_SIZE;
+    }
+  }
+
+  @Override
+  public void run() {
+    long imgID = ImageIDFactory.ID.getNextImageID();
+    Random rand = new Random(productID);
+
+    // All products must be added to the database
+    imgDB.setImageMapping(productID, imgID, size);
+
+    // Resolve path and create a new image
+    Path imgFile = workingDir.resolve(String.valueOf(imgID));
+
+    BufferedImage img = ImageCreator.createImage(shapesPerImage, categoryImage, size, rand);
+    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+
+    try {
+      ImageIO.write(img, StoreImage.STORE_IMAGE_FORMAT, stream);
+      Files.write(imgFile, Base64.getEncoder().encode(stream.toByteArray()),
+          StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+          StandardOpenOption.TRUNCATE_EXISTING);
+    } catch (IOException ioException) {
+      if (!(ioException instanceof ClosedByInterruptException)) {
+        log.warn("An IOException occured while writing image with ID " + String.valueOf(imgID)
+            + " to file " + imgFile.toAbsolutePath() + ".", ioException);
+      } else {
+        log.warn("An exception was thrown during image creation with ID " + String.valueOf(imgID)
+            + " to file " + imgFile.toAbsolutePath() + ".", ioException);
+      }
+    }
+
+    nrOfImagesGenerated.incrementAndGet();
+  }
+
+}
+
+### END FILE ###
+
+### FILE: setup\ImageCreator.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.setup;
+
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.util.Random;
+import java.util.stream.Stream;
+
+import tools.descartes.teastore.entities.ImageSize;
+
+/**
+ * Helper class drawing images from random shapes and texts.
+ * @author Norbert Schmitt
+ */
+public final class ImageCreator {
+
+  /**
+   * Random number generator seed.
+   */
+  public static final long STD_SEED = 12345;
+  
+  /**
+   * Standard number of shapes added for each image.
+   */
+  public static final int STD_NR_OF_SHAPES_PER_IMAGE = 10;
+  
+  /**
+   * Maximum RGB color code used in determining the color of the background, a shape or text.
+   */
+  public static final int MAX_RGB = 255;
+  
+  /**
+   * Maximum font size of random text in an image.
+   */
+  public static final int MAX_FONT_SIZE = 200;
+  
+  /**
+   * Maximum number of characters of random text in an image.
+   */
+  public static final int MAX_TEXT_LENGTH = 30;
+  
+  /**
+   * Maximum number for ascii character.
+   */
+  public static final int MAX_CHAR_SIZE = 255;
+
+  private ImageCreator() {
+	  
+  }
+  
+  /**
+   * Create an image with the given number of shapes, with the given size. The shapes will be added to the supplied 
+   * buffered image using the given random number generator.
+   * @param shapesPerImage Number of shapes added to the buffered image.
+   * @param categoryImg Image added at the end representing the product category.
+   * @param size Size of the image in pixel.
+   * @param rand Random number generator.
+   * @return Returns the given buffered image with the added shapes and category image.
+   */
+  public static BufferedImage createImage(int shapesPerImage, BufferedImage categoryImg,
+      ImageSize size, Random rand) {
+    BufferedImage img = new BufferedImage(size.getWidth(), size.getHeight(), BufferedImage.OPAQUE);
+    Graphics2D graphics = img.createGraphics();
+    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+
+    switchColor(graphics, rand);
+    graphics.fillRect(0, 0, size.getWidth(), size.getHeight());
+
+    for (int i = 0; i < shapesPerImage; i++) {
+      switch (rand.nextInt(4)) {
+      case 0:
+        makeRectangle(graphics, size, rand);
+        break;
+      case 1:
+        makeLine(graphics, size, rand);
+        break;
+      case 2:
+        makeOval(graphics, size, rand);
+        break;
+      case 3:
+        makeText(graphics, size, rand);
+        break;
+      default:
+        makeRectangle(graphics, size, rand);
+        break;
+      }
+    }
+
+    if (categoryImg != null) {
+      drawCategoryImage(graphics, size, categoryImg, rand);
+    }
+
+    graphics.dispose();
+    return img;
+  }
+
+  private static void drawCategoryImage(Graphics2D graphics, ImageSize maxSize,
+      BufferedImage categoryImg, Random rand) {
+    graphics.drawImage(categoryImg, rand.nextInt(maxSize.getWidth() - categoryImg.getWidth()),
+        rand.nextInt(maxSize.getHeight() - categoryImg.getHeight()), categoryImg.getWidth(),
+        categoryImg.getHeight(), null);
+  }
+
+  private static void switchColor(Graphics2D graphics, Random rand) {
+    graphics.setColor(
+        new Color(rand.nextInt(MAX_RGB + 1), rand.nextInt(MAX_RGB + 1), rand.nextInt(MAX_RGB + 1)));
+  }
+
+  private static void makeRectangle(Graphics2D graphics, ImageSize maxSize, Random rand) {
+    switchColor(graphics, rand);
+
+    int x = rand.nextInt(maxSize.getWidth());
+    int y = rand.nextInt(maxSize.getHeight());
+
+    Rectangle r = new Rectangle(x, y, rand.nextInt(maxSize.getWidth() - x) + 1,
+        rand.nextInt(maxSize.getHeight() - y) + 1);
+
+    if (rand.nextBoolean()) {
+      graphics.fill(r);
+    }
+
+    graphics.draw(r);
+  }
+
+  private static void makeLine(Graphics2D graphics, ImageSize maxSize, Random rand) {
+    switchColor(graphics, rand);
+
+    graphics.drawLine(rand.nextInt(maxSize.getWidth()), rand.nextInt(maxSize.getHeight()),
+        rand.nextInt(maxSize.getWidth()), rand.nextInt(maxSize.getHeight()));
+  }
+
+  private static void makeOval(Graphics2D graphics, ImageSize maxSize, Random rand) {
+    switchColor(graphics, rand);
+
+    int x = rand.nextInt(maxSize.getWidth());
+    int y = rand.nextInt(maxSize.getHeight());
+    int width = rand.nextInt(maxSize.getWidth() - x) + 1;
+    int height = rand.nextInt(maxSize.getHeight() - y) + 1;
+
+    if (rand.nextBoolean()) {
+      graphics.fillOval(x, y, width, height);
+    }
+
+    graphics.drawOval(x, y, width, height);
+  }
+
+  private static void makeText(Graphics2D graphics, ImageSize maxSize, Random rand) {
+    switchColor(graphics, rand);
+
+    String fontName = Font.SANS_SERIF;
+    switch (rand.nextInt(4)) {
+    case 0:
+      fontName = Font.SANS_SERIF;
+      break;
+    case 1:
+      fontName = Font.MONOSPACED;
+      break;
+    case 2:
+      fontName = Font.SERIF;
+      break;
+    case 3:
+      fontName = Font.DIALOG;
+      break;
+    default:
+      fontName = Font.SANS_SERIF;
+      break;
+    }
+
+    int fontStyle = Font.PLAIN;
+    switch (rand.nextInt(3)) {
+    case 0:
+      fontStyle = Font.PLAIN;
+      break;
+    case 1:
+      fontStyle = Font.BOLD;
+      break;
+    case 2:
+      fontStyle = Font.ITALIC;
+      break;
+    default:
+      fontStyle = Font.PLAIN;
+      break;
+    }
+
+    int fontSize = rand.nextInt(MAX_FONT_SIZE + 1);
+
+    graphics.setFont(new Font(fontName, fontStyle, fontSize));
+
+    int textLength = rand.nextInt(MAX_TEXT_LENGTH + 1);
+    String str = Stream.generate(() -> rand.nextInt(MAX_CHAR_SIZE)).limit(textLength)
+        .map(i -> (char) i.intValue())
+        .collect(StringBuilder::new, StringBuilder::append, StringBuilder::append).toString();
+
+    graphics.drawString(str, rand.nextInt(maxSize.getWidth()), rand.nextInt(maxSize.getHeight()));
+  }
+
+}
+
+### END FILE ###
+
+### FILE: setup\ImageIDFactory.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.setup;
+
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Singleton helper class generating unique image identifiers.
+ * @author Norbert Schmitt
+ */
+public enum ImageIDFactory {
+
+  /**
+   * Instance of the image id factory.
+   */
+  ID;
+
+  private AtomicLong nextID = new AtomicLong(1);
+
+  private ImageIDFactory() {
+
+  }
+
+  /**
+   * Returns the next unique image identifier.
+   * @return The next unique image identifier.
+   */
+  public long getNextImageID() {
+    return nextID.getAndIncrement();
+  }
+
+  /**
+   * Sets the first image identifier to start with.
+   * @param nextID The image identifier to start with.
+   */
+  public void startAtID(long nextID) {
+    this.nextID.set(nextID);
+  }
+}
+
+### END FILE ###
+
+### FILE: setup\ImageProviderStartup.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.image.setup;
+
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+import jakarta.servlet.annotation.WebListener;
+
+import io.opentracing.util.GlobalTracer;
+import tools.descartes.teastore.registryclient.RegistryClient;
+import tools.descartes.teastore.registryclient.Service;
+import tools.descartes.teastore.registryclient.StartupCallback;
+import tools.descartes.teastore.registryclient.loadbalancers.ServiceLoadBalancer;
+import tools.descartes.teastore.registryclient.tracing.Tracing;
+
+/**
+ * Application Lifecycle Listener implementation class Registry Client Startup.
+ *
+ * @author Simon Eismann
+ *
+ */
+@WebListener
+public class ImageProviderStartup implements ServletContextListener {
+
+  /**
+   * Empty constructor.
+   */
+  public ImageProviderStartup() {
+
+  }
+
+  /**
+   * @see ServletContextListener#contextDestroyed(ServletContextEvent)
+   * @param event
+   *          The servlet context event at destruction.
+   */
+  public void contextDestroyed(ServletContextEvent event) {
+    RegistryClient.getClient().unregister(event.getServletContext().getContextPath());
+    SetupController.SETUP.teardown();
+  }
+
+  /**
+   * @see ServletContextListener#contextInitialized(ServletContextEvent)
+   * @param event
+   *          The servlet context event at initialization.
+   */
+  public void contextInitialized(ServletContextEvent event) {
+    GlobalTracer.register(Tracing.init(Service.IMAGE.getServiceName()));
+    ServiceLoadBalancer.preInitializeServiceLoadBalancers(Service.PERSISTENCE);
+    RegistryClient.getClient().runAfterServiceIsAvailable(Service.PERSISTENCE,
+        new StartupCallback() {
+          @Override
+          public void callback() {
+            SetupController.SETUP.startup();
+            RegistryClient.getClient().register(event.getServletContext().getContextPath());
+          }
+        }, Service.IMAGE);
+  }
+}
+
+### END FILE ###
+

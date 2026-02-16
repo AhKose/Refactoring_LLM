@@ -1,0 +1,2298 @@
+### MANIFESTO - PERSISTENCE SERVICE REFACTORING ###
+- Role: Senior Architect
+- Target Module: tools.descartes.teastore.persistence
+- Architecture: JAX-RS (Jersey)
+- Guardrails: 
+  1. API Stability: Do NOT change @Path or public method signatures.
+  2. Structural Integrity: Do NOT modify interfaces/entities modülü.
+  3. No New Dependencies: Stay within the current pom.xml limits.
+- Principles: Focus on High Cohesion, Low Coupling, and Single Responsibility.
+- Output: Return only changed files in ### FILE: <path> ... ### END FILE format.
+
+### FILE: daemons\InitialDataGenerationDaemon.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.daemons;
+
+import jakarta.persistence.PersistenceException;
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+import jakarta.servlet.annotation.WebListener;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.opentracing.util.GlobalTracer;
+import tools.descartes.teastore.persistence.repository.DataGenerator;
+import tools.descartes.teastore.registryclient.RegistryClient;
+import tools.descartes.teastore.registryclient.Service;
+import tools.descartes.teastore.registryclient.tracing.Tracing;
+
+/**
+ * Application Lifecycle Listener implementation class for data generation.
+ *
+ * @author Joakim von Kistowski
+ *
+ */
+@WebListener
+public class InitialDataGenerationDaemon implements ServletContextListener {
+
+  private static final Logger LOG = LoggerFactory.getLogger(InitialDataGenerationDaemon.class);
+
+  private static final long DATABASE_OFFLINE_WAIT_MS = 2000;
+
+  /**
+   * Default constructor.
+   */
+  public InitialDataGenerationDaemon() {
+
+  }
+
+  /**
+   * @see ServletContextListener#contextDestroyed(ServletContextEvent)
+   * @param event
+   *          The servlet context event at destruction.
+   */
+  public void contextDestroyed(ServletContextEvent event) {
+    RegistryClient.getClient().unregister(event.getServletContext().getContextPath());
+  }
+
+  /**
+   * @see ServletContextListener#contextInitialized(ServletContextEvent)
+   * @param event
+   *          The servlet context event at initialization.
+   */
+  public void contextInitialized(ServletContextEvent event) {
+    GlobalTracer.register(Tracing.init(Service.PERSISTENCE.getServiceName()));
+    waitForDatabase();
+    if (DataGenerator.GENERATOR.isDatabaseEmpty()) {
+      LOG.info("Database is empty. Generating new database content");
+      DataGenerator.GENERATOR.generateDatabaseContent(DataGenerator.SMALL_DB_CATEGORIES,
+          DataGenerator.SMALL_DB_PRODUCTS_PER_CATEGORY, DataGenerator.SMALL_DB_USERS,
+          DataGenerator.SMALL_DB_MAX_ORDERS_PER_USER);
+    } else {
+      LOG.info("Populated database found. Skipping data generation");
+    }
+    LOG.info("Persistence finished initializing database");
+    RegistryClient.getClient().register(event.getServletContext().getContextPath());
+    LOG.info("Persistence started registration daemon");
+  }
+
+  private void waitForDatabase() {
+    boolean databaseOffline = true;
+    while (databaseOffline) {
+      try {
+        DataGenerator.GENERATOR.isDatabaseEmpty();
+        databaseOffline = false;
+      } catch (PersistenceException e) {
+        System.out.println("TEST");
+        LOG.warn("Exception connecting to database. Is database offline? Wating for "
+            + DATABASE_OFFLINE_WAIT_MS + " ms.");
+        try {
+          Thread.sleep(DATABASE_OFFLINE_WAIT_MS);
+        } catch (InterruptedException e1) {
+          LOG.error("Exception waiting for database to come online: " + e1.getMessage());
+        }
+      }
+    }
+
+  }
+}
+
+### END FILE ###
+
+### FILE: domain\CategoryRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import jakarta.persistence.EntityManager;
+
+import tools.descartes.teastore.persistence.repository.AbstractPersistenceRepository;
+import tools.descartes.teastore.entities.Category;
+
+/**
+ * Repository that performs transactional CRUD operations cor Categories on database.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class CategoryRepository extends AbstractPersistenceRepository<Category, PersistenceCategory> {
+
+	/**
+	 * Singleton for the CategoryRepository.
+	 */
+	public static final CategoryRepository REPOSITORY = new CategoryRepository();
+	
+	//Private constructor.
+	private CategoryRepository() {
+		
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long createEntity(Category entity) {
+		PersistenceCategory category = new PersistenceCategory();
+		category.setName(entity.getName());
+		category.setDescription(entity.getDescription());
+		
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+        	em.persist(category);
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return category.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean updateEntity(long id, Category entity) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceCategory category = em.find(getEntityClass(), id);
+	        if (category != null) {
+	        	category.setName(entity.getName());
+	        	category.setDescription(entity.getDescription());
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected long getId(PersistenceCategory v) {
+		return v.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Class<PersistenceCategory> getEntityClass() {
+		return PersistenceCategory.class;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\OrderItemRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+
+import tools.descartes.teastore.persistence.repository.AbstractPersistenceRepository;
+import tools.descartes.teastore.entities.OrderItem;
+
+/**
+ * Repository that performs transactional CRUD operations for order items on database.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class OrderItemRepository extends AbstractPersistenceRepository<OrderItem, PersistenceOrderItem> {
+
+	/**
+	 * Singleton for the ProductRepository.
+	 */
+	public static final OrderItemRepository REPOSITORY = new OrderItemRepository();
+	
+	//Private constructor.
+	private OrderItemRepository() {
+		
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long createEntity(OrderItem entity) {
+		PersistenceOrderItem item = new PersistenceOrderItem();
+		item.setQuantity(entity.getQuantity());
+		item.setUnitPriceInCents(entity.getUnitPriceInCents());
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceProduct prod = em.find(PersistenceProduct.class, entity.getProductId());
+	        PersistenceOrder order = em.find(PersistenceOrder.class, entity.getOrderId());
+	        if (prod != null && order != null) {
+	        	item.setProduct(prod);
+	        	item.setOrder(order);
+	        	em.persist(item);
+	        } else {
+	        	item.setId(-1L);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return item.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean updateEntity(long id, OrderItem entity) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceOrderItem item = em.find(getEntityClass(), id);
+	        if (item != null) {
+	        	item.setQuantity(entity.getQuantity());
+	    		item.setUnitPriceInCents(entity.getUnitPriceInCents());
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+	
+	/**
+	 * Gets all order items for the given productId.
+	 * @param productId The id of the product ordered.
+	 * @param start The index of the first orderItem to return. Negative value to start at the beginning.
+	 * @param limit The maximum number of orderItem to return. Negative value to return all.
+	 * @return List of order items with the specified product.
+	 */
+	public List<PersistenceOrderItem> getAllEntitiesWithProduct(long productId, int start, int limit) {
+		List<PersistenceOrderItem> entities = null;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceProduct prod = em.find(PersistenceProduct.class, productId);
+	        if (prod != null) {
+	        	TypedQuery<PersistenceOrderItem> allMatchesQuery =
+	        			em.createQuery("SELECT u FROM " + getEntityClass().getName()
+	        					+ " u WHERE u.product = :prod", getEntityClass());
+	        	allMatchesQuery.setParameter("prod", prod);
+	    		entities = resultsWithStartAndLimit(em, allMatchesQuery, start, limit);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+		if (entities == null) {
+			return new ArrayList<PersistenceOrderItem>();
+		}
+		return entities;
+	}
+
+	/**
+	 * Gets all order items in the specified order.
+	 * @param orderId The id of the order.
+	 * @param start The index of the first orderItem to return. Negative value to start at the beginning.
+	 * @param limit The maximum number of orderItem to return. Negative value to return all.
+	 * @return List of order items in the specified order.
+	 */
+	public List<PersistenceOrderItem> getAllEntitiesWithOrder(long orderId, int start, int limit) {
+		List<PersistenceOrderItem> entities = null;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceOrder order = em.find(PersistenceOrder.class, orderId);
+	        if (order != null) {
+	        	TypedQuery<PersistenceOrderItem> allMatchesQuery =
+	        			em.createQuery("SELECT u FROM " + getEntityClass().getName()
+	        					+ " u WHERE u.order = :order", getEntityClass());
+	        	allMatchesQuery.setParameter("order", order);
+	        	entities = resultsWithStartAndLimit(em, allMatchesQuery, start, limit);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+		if (entities == null) {
+			return new ArrayList<PersistenceOrderItem>();
+		}
+		return entities;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected long getId(PersistenceOrderItem v) {
+		return v.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Class<PersistenceOrderItem> getEntityClass() {
+		return PersistenceOrderItem.class;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\OrderRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+
+import tools.descartes.teastore.persistence.repository.AbstractPersistenceRepository;
+import tools.descartes.teastore.entities.Order;
+
+/**
+ * Repository that performs transactional CRUD operations for orders on database.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class OrderRepository extends AbstractPersistenceRepository<Order, PersistenceOrder> {
+
+	/**
+	 * Singleton for the ProductRepository.
+	 */
+	public static final OrderRepository REPOSITORY = new OrderRepository();
+	
+	//Private constructor.
+	private OrderRepository() {
+		
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long createEntity(Order entity) {
+		PersistenceOrder order = new PersistenceOrder();
+		order.setTime(entity.getTime());
+		order.setTotalPriceInCents(entity.getTotalPriceInCents());
+		order.setAddressName(entity.getAddressName());
+		order.setAddress1(entity.getAddress1());
+		order.setAddress2(entity.getAddress2());
+		order.setCreditCardCompany(entity.getCreditCardCompany());
+		order.setCreditCardNumber(entity.getCreditCardNumber());
+		order.setCreditCardExpiryDate(entity.getCreditCardExpiryDate());
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceUser user = em.find(PersistenceUser.class, entity.getUserId());
+	        if (user != null) {
+	        	order.setUser(user);
+	        	em.persist(order);
+	        } else {
+	        	order.setId(-1L);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return order.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean updateEntity(long id, Order entity) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceOrder order = em.find(getEntityClass(), id);
+	        if (order != null) {
+	        	order.setTime(entity.getTime());
+	    		order.setTotalPriceInCents(entity.getTotalPriceInCents());
+	    		order.setAddressName(entity.getAddressName());
+	    		order.setAddress1(entity.getAddress1());
+	    		order.setAddress2(entity.getAddress2());
+	    		order.setCreditCardCompany(entity.getCreditCardCompany());
+	    		order.setCreditCardNumber(entity.getCreditCardNumber());
+	    		order.setCreditCardExpiryDate(entity.getCreditCardExpiryDate());
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+	
+	/**
+	 * Gets all Orders for the user with the specified userId.
+	 * @param userId The id of the ordering user.
+	 * @param start The index of the first order to return. Negative value to start at the beginning.
+	 * @param limit The maximum number of order to return. Negative value to return all.
+	 * @return List of orders with the specified user.
+	 */
+	public List<PersistenceOrder> getAllEntitiesWithUser(long userId, int start, int limit) {
+		List<PersistenceOrder> entities = null;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceUser user = em.find(PersistenceUser.class, userId);
+	        if (user != null) {
+	        	TypedQuery<PersistenceOrder> allMatchesQuery =
+	        			em.createQuery("SELECT u FROM " + getEntityClass().getName()
+	        					+ " u WHERE u.user = :user", getEntityClass());
+	        	allMatchesQuery.setParameter("user", user);
+	    		entities = resultsWithStartAndLimit(em, allMatchesQuery, start, limit);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+		if (entities == null) {
+			return new ArrayList<PersistenceOrder>();
+		}
+		return entities;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected long getId(PersistenceOrder v) {
+		return v.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Class<PersistenceOrder> getEntityClass() {
+		return PersistenceOrder.class;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\PersistenceCategory.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PostRemove;
+
+import tools.descartes.teastore.persistence.repository.CacheManager;
+import tools.descartes.teastore.entities.Category;
+
+/**
+ * Entity for persisting Categories in database.
+ * @author Joakim von Kistowski
+ *
+ */
+@Entity
+public class PersistenceCategory extends Category {
+
+	@Id
+	@GeneratedValue
+	private long id;
+	
+	@Column(length = 100)
+	private String name;
+	@Lob
+	private String description;
+	
+	@OneToMany(mappedBy = "category", orphanRemoval = true, cascade = {CascadeType.ALL})
+	private List<PersistenceProduct> products;
+	
+	/**
+	 * Creates a new and empty category.
+	 */
+	PersistenceCategory() {
+		super();
+		products = new ArrayList<>();
+	}
+	
+	/**
+	 * Clear products from cache to update relationships.
+	 */
+	@PostRemove
+	private void clearCaches() {
+		CacheManager.MANAGER.clearCache(PersistenceProduct.class);
+		CacheManager.MANAGER.clearRemoteCache(PersistenceCategory.class);
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getId() {
+		return id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setId(long id) {
+		this.id = id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getName() {
+		return name;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getDescription() {
+		return description;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setDescription(String description) {
+		this.description = description;
+	}
+	
+	/**
+	 * Get all products in this category.
+	 * @return All products in the category.
+	 */
+	public List<PersistenceProduct> getProducts() {
+		return products;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\PersistenceOrder.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PostRemove;
+import jakarta.persistence.PreRemove;
+
+import tools.descartes.teastore.persistence.repository.CacheManager;
+import tools.descartes.teastore.entities.Order;
+
+/**
+ * Entity for persisting Orders in database.
+ * @author Joakim von Kistowski
+ *
+ */
+@Entity
+public class PersistenceOrder extends Order {
+
+	@Id
+	@GeneratedValue
+	private long id;
+	private LocalDateTime orderTime;
+	
+	private long totalPriceInCents;
+	private String addressName;
+	private String address1;
+	private String address2;
+	
+	private String creditCardCompany;
+	private String creditCardNumber;
+	private LocalDate creditCardExpiryLocalDate;
+	
+	@OneToMany(mappedBy = "order", cascade = {CascadeType.ALL})
+	private List<PersistenceOrderItem> orderItems;
+	
+	@ManyToOne(optional = false)
+	private PersistenceUser user;
+
+	/**
+	 * Create a new and empty order.
+	 */
+	PersistenceOrder() {
+		super();
+		orderItems = new ArrayList<PersistenceOrderItem>();
+		orderTime = LocalDateTime.now();
+		creditCardExpiryLocalDate = LocalDate.now();
+	}
+	
+	/**
+	 * Delete orders and order items.
+	 */
+	@PreRemove
+	private void deleteOrders() {
+		EntityManager em = OrderRepository.REPOSITORY.getEMF().createEntityManager();
+		try {
+			em.getTransaction().begin();
+			em.createQuery("DELETE FROM PersistenceOrderItem oi WHERE oi.order = :order")
+			.setParameter("order", this).executeUpdate();
+			em.getTransaction().commit();
+		} finally {
+	        em.close();
+	    }
+	}
+	
+	/**
+	 * Clear users and order items from cache post remove.
+	 */
+	@PostRemove
+	private void clearCaches() {
+		CacheManager.MANAGER.clearCache(PersistenceUser.class);
+		CacheManager.MANAGER.clearCache(PersistenceOrderItem.class);
+		CacheManager.MANAGER.clearRemoteCache(PersistenceOrder.class);
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getId() {
+		return id;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setId(long id) {
+		this.id = id;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getUserId() {
+		return user.getId();
+	}
+
+	/**
+	 * Unsupported operation in persistence.
+	 * @param userId unsupported parameter.
+	 */
+	@Override
+	public void setUserId(long userId) {
+		//unsupported operation
+	}
+
+	/**
+	 * Get the order's time.
+	 * @return The time.
+	 */
+	public LocalDateTime getOrderTime() {
+		return orderTime;
+	}
+
+	/**
+	 * Sets the order's time.
+	 * @param orderTime The time to set.
+	 */
+	public void setOrderTime(LocalDateTime orderTime) {
+		this.orderTime = orderTime;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getTime() {
+		return getOrderTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setTime(String time) {
+		if (time != null && !time.isEmpty()) {
+			setOrderTime(LocalDateTime.parse(time, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+		}
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getTotalPriceInCents() {
+		return totalPriceInCents;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setTotalPriceInCents(long totalPriceInCents) {
+		this.totalPriceInCents = totalPriceInCents;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getAddressName() {
+		return addressName;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setAddressName(String addressName) {
+		this.addressName = addressName;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getAddress1() {
+		return address1;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setAddress1(String address1) {
+		this.address1 = address1;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getAddress2() {
+		return address2;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setAddress2(String address2) {
+		this.address2 = address2;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getCreditCardCompany() {
+		return creditCardCompany;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setCreditCardCompany(String creditCardCompany) {
+		this.creditCardCompany = creditCardCompany;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getCreditCardNumber() {
+		return creditCardNumber;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setCreditCardNumber(String creditCardNumber) {
+		this.creditCardNumber = creditCardNumber;
+	}
+
+	/**
+	 * Get the credit card expiry date.
+	 * @return The date.
+	 */
+	public LocalDate getCreditCardExpiryLocalDate() {
+		return creditCardExpiryLocalDate;
+	}
+
+	/**
+	 * Set the credit card expiry date.
+	 * @param creditCardExpiryLocalDate the date to set.
+	 */
+	public void setCreditCardExpiryLocalDate(LocalDate creditCardExpiryLocalDate) {
+		this.creditCardExpiryLocalDate = creditCardExpiryLocalDate;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getCreditCardExpiryDate() {
+		return getCreditCardExpiryLocalDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setCreditCardExpiryDate(String creditCardExpiryDate) {
+		if (creditCardExpiryDate != null && !creditCardExpiryDate.isEmpty()) {
+			setCreditCardExpiryLocalDate(LocalDate.parse(creditCardExpiryDate, DateTimeFormatter.ISO_LOCAL_DATE));
+		}
+	}
+
+	/**
+	 * Get the order items for the order.
+	 * @return The order items.
+	 */
+	public List<PersistenceOrderItem> getOrderItems() {
+		return orderItems;
+	}
+
+	/**
+	 * Set the order items.
+	 * @param orderItems The order items.
+	 */
+	public void setOrderItems(List<PersistenceOrderItem> orderItems) {
+		this.orderItems = orderItems;
+	}
+
+	/**
+	 * Get the ordering user.
+	 * @return The user.
+	 */
+	public PersistenceUser getUser() {
+		return user;
+	}
+
+	/**
+	 * Set the ordering user.
+	 * @param user The user.
+	 */
+	public void setUser(PersistenceUser user) {
+		this.user = user;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\PersistenceOrderItem.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostRemove;
+
+import tools.descartes.teastore.persistence.repository.CacheManager;
+import tools.descartes.teastore.entities.OrderItem;
+
+/**
+ * Persistence entity Class for OrderItems (item with quantity in shopping cart or order).
+ * @author Joakim von Kistowski
+ *
+ */
+@Entity
+public class PersistenceOrderItem extends OrderItem {
+
+	@Id
+	@GeneratedValue
+	private long id;
+	
+	private int quantity;
+	private long unitPriceInCents;
+
+	@ManyToOne(optional = false)
+	private PersistenceProduct product;
+
+	@ManyToOne(optional = false)
+	private PersistenceOrder order;
+	
+	/**
+	 * Create a new and empty order item.
+	 */
+	PersistenceOrderItem() {
+		super();
+	}
+	
+	/**
+	 * Clear products and orders from cache post remove.
+	 */
+	@PostRemove
+	private void clearCaches() {
+		CacheManager.MANAGER.clearCache(PersistenceProduct.class);
+		CacheManager.MANAGER.clearCache(PersistenceOrder.class);
+		CacheManager.MANAGER.clearRemoteCache(PersistenceOrderItem.class);
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getId() {
+		return id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setId(long id) {
+		this.id = id;
+	}
+	
+	 /**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getProductId() {
+		return product.getId();
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setProductId(long productId) {
+		//unsupported
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public int getQuantity() {
+		return quantity;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setQuantity(int quantity) {
+		this.quantity = quantity;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getUnitPriceInCents() {
+		return unitPriceInCents;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setUnitPriceInCents(long unitPriceInCents) {
+		this.unitPriceInCents = unitPriceInCents;
+	}
+
+	/**
+	 * Gets the product.
+	 * @return the product to get.
+	 */
+	public PersistenceProduct getProduct() {
+		return product;
+	}
+
+	/**
+	 * Sets the product.
+	 * @param product the product to set.
+	 */
+	void setProduct(PersistenceProduct product) {
+		this.product = product;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getOrderId() {
+		return getOrder().getId();
+	}
+
+	/**
+	 * Unsupported operation.
+	 * @param orderId unsupported parameter.
+	 */
+	public void setOrderId(long orderId) {
+		//unsupported operation
+	}
+	
+	/**
+	 * Gets the order.
+	 * @return The order to get.
+	 */
+	public PersistenceOrder getOrder() {
+		return order;
+	}
+
+	/**
+	 * Sets the order.
+	 * @param order the order to set.
+	 */
+	void setOrder(PersistenceOrder order) {
+		this.order = order;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\PersistenceProduct.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PostRemove;
+
+import tools.descartes.teastore.persistence.repository.CacheManager;
+import tools.descartes.teastore.entities.Product;
+
+/**
+ * Persistence entity for products.
+ * @author Joakim von Kistowski
+ *
+ */
+@Entity
+public class PersistenceProduct extends Product {
+
+	@Id
+	@GeneratedValue
+	private long id;
+	
+	@Column(length = 100)
+	private String name;
+	@Lob
+	private String description;
+	private long listPriceInCents;
+	
+	@ManyToOne
+	private PersistenceCategory category;
+	
+	@OneToMany(mappedBy = "product", orphanRemoval = true, cascade = {CascadeType.ALL})
+	private List<PersistenceOrderItem> orderItems;
+	
+	/**
+	 * Clear categories and order items from cache post remove.
+	 */
+	@PostRemove
+	private void clearCaches() {
+		CacheManager.MANAGER.clearCache(PersistenceCategory.class);
+		CacheManager.MANAGER.clearRemoteCache(PersistenceProduct.class);
+	}
+	
+	/**
+	 * Create a new and empty product.
+	 */
+	PersistenceProduct() {
+		super();
+		orderItems = new ArrayList<PersistenceOrderItem>();
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setId(long id) {
+		this.id = id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getId() {
+		return id;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getCategoryId() {
+		return category.getId();
+	}
+	
+	/**
+	 * Unsupported operation. Does nothing.
+	 * @param categoryId Unsupported parameter.
+	 */
+	@Override
+	public void setCategoryId(long categoryId) {
+		// unsupported operation
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getDescription() {
+		return description;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setDescription(String description) {
+		this.description = description;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getListPriceInCents() {
+		return listPriceInCents;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setListPriceInCents(long listPriceInCents) {
+		this.listPriceInCents = listPriceInCents;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public PersistenceCategory getCategory() {
+		return category;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public void setCategory(PersistenceCategory category) {
+		this.category = category;
+	}
+
+	/**
+	 * @return the orderItems
+	 */
+	public List<PersistenceOrderItem> getOrderItems() {
+		return orderItems;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\PersistenceUser.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PostRemove;
+import jakarta.persistence.PreRemove;
+
+import tools.descartes.teastore.persistence.repository.CacheManager;
+import tools.descartes.teastore.entities.User;
+
+/**
+ * Persistence entity for user.
+ * @author Joakim von Kistowski
+ *
+ */
+@Entity
+public class PersistenceUser extends User {
+
+	@Id
+	@GeneratedValue
+	private long id;
+	
+	private String userName;
+	
+	private String password;
+	private String realName;
+	private String email;
+	
+	@OneToMany(mappedBy = "user", cascade = {CascadeType.ALL})
+	private List<PersistenceOrder> orders;
+	
+	/**
+	 * Delete orders and order items.
+	 */
+	@PreRemove
+	private void deleteOrders() {
+		EntityManager em = UserRepository.REPOSITORY.getEMF().createEntityManager();
+		try {
+			em.getTransaction().begin();
+			em.createQuery("DELETE FROM PersistenceOrderItem oi WHERE oi.order.user = :user")
+			.setParameter("user", this).executeUpdate();
+			em.createQuery("DELETE FROM PersistenceOrder o WHERE o.user = :user")
+			.setParameter("user", this).executeUpdate();
+			em.getTransaction().commit();
+		} finally {
+	        em.close();
+	    }
+	}
+	
+	/**
+	 * Clear users and order items from cache post remove.
+	 */
+	@PostRemove
+	private void clearCaches() {
+		CacheManager.MANAGER.clearCache(PersistenceOrder.class);
+		CacheManager.MANAGER.clearRemoteCache(PersistenceUser.class);
+	}
+	
+	/**
+	 * Create a new and empty user.
+	 */
+	PersistenceUser() {
+		super();
+		orders = new ArrayList<>();
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long getId() {
+		return id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setId(long id) {
+		this.id = id;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getUserName() {
+		return userName;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setUserName(String userName) {
+		this.userName = userName;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getPassword() {
+		return password;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setPassword(String password) {
+		this.password = password;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getRealName() {
+		return realName;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setRealName(String realName) {
+		this.realName = realName;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public String getEmail() {
+		return email;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void setEmail(String email) {
+		this.email = email;
+	}
+
+	/**
+	 * Get the user's orders.
+	 * @return the orders.
+	 */
+	public List<PersistenceOrder> getOrders() {
+		return orders;
+	}	
+}
+
+### END FILE ###
+
+### FILE: domain\ProductRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+
+import tools.descartes.teastore.persistence.repository.AbstractPersistenceRepository;
+import tools.descartes.teastore.entities.Product;
+
+/**
+ * Repository that performs transactional CRUD operations for Products on database.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class ProductRepository extends AbstractPersistenceRepository<Product, PersistenceProduct> {
+
+	/**
+	 * Singleton for the ProductRepository.
+	 */
+	public static final ProductRepository REPOSITORY = new ProductRepository();
+	
+	//Private constructor.
+	private ProductRepository() {
+		
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long createEntity(Product entity) {
+		PersistenceProduct product = new PersistenceProduct();
+		product.setName(entity.getName());
+		product.setDescription(entity.getDescription());
+		product.setListPriceInCents(entity.getListPriceInCents());
+		
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceCategory cat = em.find(PersistenceCategory.class, entity.getCategoryId());
+	        if (cat != null) {
+	        	product.setCategory(cat);
+	        	em.persist(product);
+	        } else {
+	        	product.setId(-1L);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return product.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean updateEntity(long id, Product entity) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceProduct product = em.find(getEntityClass(), id);
+	        if (product != null) {
+	        	product.setName(entity.getName());
+	        	product.setDescription(entity.getDescription());
+	        	product.setListPriceInCents(entity.getListPriceInCents());
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+	
+	/**
+	 * Gets all Products in the Category of the given categoryId.
+	 * @param categoryId The id of the Category containing the Products.
+	 * @param start The index of the first Product to return. Negative value to start at the beginning.
+	 * @param limit The maximum number of Products to return. Negative value to return all.
+	 * @return List of Products with the specified Category.
+	 */
+	public List<PersistenceProduct> getAllEntities(long categoryId, int start, int limit) {
+		List<PersistenceProduct> entities = null;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceCategory cat = em.find(PersistenceCategory.class, categoryId);
+	        if (cat != null) {
+	        	TypedQuery<PersistenceProduct> allMatchesQuery =
+	        			em.createQuery("SELECT u FROM " + getEntityClass().getName()
+	        					+ " u WHERE u.category = :cat", getEntityClass());
+	        	allMatchesQuery.setParameter("cat", cat);
+	        	entities = resultsWithStartAndLimit(em, allMatchesQuery, start, limit);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+		if (entities == null) {
+			return new ArrayList<PersistenceProduct>();
+		}
+		return entities;
+	}
+
+	/**
+	 * Gets the count of all Products in the Category of the given categoryId.
+	 * @param categoryId The id of the Category containing the Products.
+	 * @return Count of Products with the specified Category.
+	 */
+	public long getProductCount(long categoryId) {
+		long count = -1;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceCategory cat = em.find(PersistenceCategory.class, categoryId);
+	        if (cat != null) {
+	        	TypedQuery<Long> allMatchesQuery =
+	        			em.createQuery("SELECT COUNT(u) FROM " + getEntityClass().getName()
+	        					+ " u WHERE u.category = :cat", Long.class);
+	        	allMatchesQuery.setParameter("cat", cat);
+	        	Long countResult = allMatchesQuery.getSingleResult();
+	        	if (countResult != null) {
+	        		count = countResult;
+	        	}
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+		return count;
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected long getId(PersistenceProduct v) {
+		return v.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Class<PersistenceProduct> getEntityClass() {
+		return PersistenceProduct.class;
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\UserRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain;
+
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+
+import tools.descartes.teastore.persistence.repository.AbstractPersistenceRepository;
+import tools.descartes.teastore.entities.User;
+
+/**
+ * Repository that performs transactional CRUD operations for users on database.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class UserRepository extends AbstractPersistenceRepository<User, PersistenceUser> {
+
+	/**
+	 * Singleton for the ProductRepository.
+	 */
+	public static final UserRepository REPOSITORY = new UserRepository();
+	
+	//Private constructor.
+	private UserRepository() {
+		
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long createEntity(User entity) {
+		PersistenceUser user = new PersistenceUser();
+		user.setUserName(entity.getUserName());
+		user.setPassword(entity.getPassword());
+		user.setRealName(entity.getRealName());
+		user.setEmail(entity.getEmail());
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceUser existing = getUserByName(entity.getUserName());
+	        if (existing == null) {
+	        	em.persist(user);
+	        } else {
+	        	user.setId(-1L);
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return user.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean updateEntity(long id, User entity) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        PersistenceUser user = em.find(getEntityClass(), id);
+	        if (user != null) {
+	        	user.setUserName(entity.getUserName());
+	    		user.setPassword(entity.getPassword());
+	    		user.setRealName(entity.getRealName());
+	    		user.setEmail(entity.getEmail());
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected long getId(PersistenceUser v) {
+		return v.getId();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Class<PersistenceUser> getEntityClass() {
+		return PersistenceUser.class;
+	}
+	
+	/**
+	 * Return the user with the name.
+	 * @param userName The user name.
+	 * @return User or null if the user doesn't exist.
+	 */
+	public PersistenceUser getUserByName(String userName) {
+		EntityManager em = getEM();
+		TypedQuery<PersistenceUser> allMatchesQuery =
+				em.createQuery("SELECT u FROM " + getEntityClass().getName()
+						+ " u WHERE u.userName = :name", getEntityClass())
+				.setMaxResults(1);
+		allMatchesQuery.setParameter("name", userName);
+		List<PersistenceUser> entities = allMatchesQuery.getResultList();
+		if (entities == null || entities.isEmpty()) {
+			return null;
+		}
+		return entities.get(0);
+	}
+	
+}
+
+### END FILE ###
+
+### FILE: domain\converters\LocalDateAttributeConverter.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain.converters;
+
+import java.sql.Date;
+import java.time.LocalDate;
+
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
+
+/**
+ * Converter for persisting Java8 LocalDate in database.
+ * @author Joakim von Kistowski
+ *
+ */
+@Converter(autoApply = true)
+public class LocalDateAttributeConverter implements AttributeConverter<LocalDate, Date> {
+	
+	/**
+	 * Converts LocalDate to a supported format.
+	 * @param locDate The date to convert.
+	 * @return The date in a supported format.
+	 */
+    @Override
+    public Date convertToDatabaseColumn(LocalDate locDate) {
+    	if (locDate == null) {
+    		return null;
+    	}
+    	return Date.valueOf(locDate);
+    }
+
+    /**
+	 * Converts database format to LocalDate.
+	 * @param sqlDate The date to convert.
+	 * @return The date as LocalDate.
+	 */
+    @Override
+    public LocalDate convertToEntityAttribute(Date sqlDate) {
+    	if (sqlDate == null) {
+    		return null;
+    	}
+    	return sqlDate.toLocalDate();
+    }
+}
+
+### END FILE ###
+
+### FILE: domain\converters\LocalDateTimeAttributeConverter.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.domain.converters;
+
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
+
+/**
+ * Converter for persisting Java8 LocalDateTime in database.
+ * @author Joakim von Kistowski
+ *
+ */
+@Converter(autoApply = true)
+public class LocalDateTimeAttributeConverter implements AttributeConverter<LocalDateTime, Timestamp> {
+	
+	/**
+	 * Converts LocalDateTime to a supported format.
+	 * @param locDateTime The date time to convert.
+	 * @return The date time in a supported format.
+	 */
+	@Override
+	public Timestamp convertToDatabaseColumn(LocalDateTime locDateTime) {
+		if (locDateTime == null) {
+			return null;
+		}
+		return Timestamp.valueOf(locDateTime);
+	}
+
+	
+	/**
+	 * Converts database format to LocalDateTime.
+	 * @param sqlTimestamp The date time to convert.
+	 * @return The date as LocalDateTime.
+	 */
+	@Override
+	public LocalDateTime convertToEntityAttribute(Timestamp sqlTimestamp) {
+		if (sqlTimestamp == null) {
+			return null;
+		}
+		return sqlTimestamp.toLocalDateTime();
+	}
+}
+
+### END FILE ###
+
+### FILE: repository\AbstractPersistenceRepository.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.repository;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.TypedQuery;
+
+/**
+ * Abstract Repository for CRUD Operations for persistence Entities.
+ * Already provides lookup and delete operations.
+ * @author Joakim von Kistowski
+ *
+ * @param <E> The class type of the Interface entity
+ * 		(i.e., the entity type that is parsed and sent out to clients using REST).
+ * @param <P> The class type of the Persistence entity
+ * 		(i.e., the entity that is stored in the database).
+ */
+public abstract class AbstractPersistenceRepository<E, P extends E> {
+	
+	/**
+	 * Gets the ID of a persistence entity.
+	 * @param p The persistence entity for which the ID is to be retreived.
+	 * @return The id of persistence entity p.
+	 */
+	protected abstract long getId(P p);
+	
+	/**
+	 * Get the Java Class of the persistence entity objects for this repository.
+	 * @return The Java Class of the persistence entity objects.
+	 */
+	protected abstract Class<P> getEntityClass();
+	
+	/**
+	 * Get the entity manager factory of the persistence context.
+	 * @return The entity manager factory.
+	 */
+	public EntityManagerFactory getEMF() {
+		return EMFManager.getEMF();
+	}
+	
+	/**
+	 * Creates a new entity manager and returns it.
+	 * Don't forget to close!
+	 * @return A new entity manager.
+	 */
+	protected EntityManager getEM() {
+		return getEMF().createEntityManager();
+	}
+	
+	/**
+	 * Create a new persistence entity from an interface entity
+	 * (usually received via REST).
+	 * @param entity The entity template for the entity to create.
+	 * @return The new ID of the newly created entity.
+	 */
+	public abstract long createEntity(E entity);
+	
+	/**
+	 * Updates the entity with the values from the provided interface
+	 * entity (usually received via REST).
+	 * @param id The id of the entity to update (ignore the id in the passed entity).
+	 * @param entity The values of the entity to update. Ignore the id of the entity.
+	 * 		You may also choose to ignore additional values, if you do not support updating them.
+	 * @return True, if update succeded. False otherwise.
+	 */
+	public abstract boolean updateEntity(long id, E entity);
+	
+	/**
+	 * Retrieve the entity with the given ID.
+	 * @param id ID of the entity to retrieve.
+	 * @return The entity. Null, if none was found.
+	 */
+	public P getEntity(long id) {
+		P instance = null;
+		EntityManager em = getEM();
+	    try {
+	        instance = em.find(getEntityClass(), id);
+	    } finally {
+	        em.close();
+	    }
+		return instance;
+	}
+	
+	/**
+	 * Get all entities of the generic types of entities managed in this repository.
+	 * @return All entities in a list.
+	 */
+	public List<P> getAllEntities() {
+		return getAllEntities(-1, -1);
+	}
+	
+	/**
+	 * Get all entities of the generic types of entities managed in this repository.
+	 * Starts with the "start" entity and returns at maximum "limit" entities.
+	 * @param start The index of the entity to start with. Set to negative value to start at the beginning.
+	 * @param limit The maximum number of entites to return. Set to negative value to return all.
+	 * @return List of entities.
+	 */
+	public List<P> getAllEntities(int start, int limit) {
+		EntityManager em = getEM();
+		List<P> entities = null;
+		try {
+			TypedQuery<P> allMatchesQuery =
+					em.createQuery("SELECT u FROM " + getEntityClass().getName() + " u", getEntityClass());
+			if (start >= 0) {
+				allMatchesQuery = allMatchesQuery.setFirstResult(start);
+		    }
+			if (limit >= 0) {
+				allMatchesQuery = allMatchesQuery.setMaxResults(limit);
+			}
+			entities = allMatchesQuery.getResultList();
+		} finally {
+			em.close();
+		}
+		if (entities == null) {
+			entities = new ArrayList<P>();
+		}
+		return entities;
+	}
+	
+	/**
+	 * Removes the entity with the id from database.
+	 * @param id The id of the entity to remove.
+	 * @return True, if delete succeded. False, if it failed (entity with id not found).
+	 */
+	public boolean removeEntity(long id) {
+		boolean found = false;
+		EntityManager em = getEM();
+	    try {
+	        em.getTransaction().begin();
+	        P entity = em.find(getEntityClass(), id);
+	        if (entity != null) {
+	        	em.remove(entity);
+	        	found = true;
+	        }
+	        em.getTransaction().commit();
+	    } finally {
+	        em.close();
+	    }
+	    return found;
+	}
+	
+	/**
+	 * Returns the query result for a query with a start and limit parameter.
+	 * Negative starts and limits are ignored.
+	 * @param em The currently open entity manager.
+	 * @param query The query. Parameters must all be bound.
+	 * @param start The start index. Negative values are ignored.
+	 * @param limit The limit. Negative values are ignored.
+	 * @return The query result.
+	 */
+	protected List<P> resultsWithStartAndLimit(EntityManager em, TypedQuery<P> query, int start, int limit) {
+		if (start >= 0) {
+			query.setFirstResult(start);
+	    }
+		if (limit >= 0) {
+			query = query.setMaxResults(limit);
+		}
+		return query.getResultList();
+	}
+}
+
+### END FILE ###
+
+### FILE: repository\CacheManager.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.persistence.repository;
+
+import java.util.List;
+
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
+import tools.descartes.teastore.persistence.domain.CategoryRepository;
+import tools.descartes.teastore.registryclient.loadbalancers.ServiceLoadBalancer;
+import tools.descartes.teastore.registryclient.util.RESTClient;
+
+/**
+ * Class for managing (mostly clearing) the persistence cache.
+ * Sends cache clears to other persistence contexts for cache coherence.
+ * @author Joakim von Kistowski
+ *
+ */
+public final class CacheManager {
+
+	private static final String ENDPOINTURI = "cache";
+	
+	/**
+	 * The cache manager singleton.
+	 */
+	public static final CacheManager MANAGER = new CacheManager();
+	
+	private CacheManager() {
+		
+	}
+	
+	/**
+	 * Clears the entire cache in all persistence services,
+	 * including this one.
+	 */
+	public void clearAllCaches() {
+		CategoryRepository.REPOSITORY.getEMF().getCache().evictAll();
+		try {
+			ServiceLoadBalancer.multicastRESTToOtherServiceInstances(ENDPOINTURI, String.class,
+					client -> clearRemoteCacheREST(client, null));
+		} catch (Exception e) {
+			
+		}
+	}
+	
+	/**
+	 * Clears the cache for the entity class in all
+	 * persistence services, including this one.
+	 * @param entityClass The class to clear.
+	 */
+	public void clearCache(Class<?> entityClass) {
+		clearLocalCacheOnly(entityClass);
+		clearRemoteCache(entityClass);
+	}
+	
+	/**
+	 * Clears the cache in all remote persistence services
+	 * (all, except the calling one).
+	 * 
+	 * Example usage scenario: Update on entity is automatically
+	 * cached in local cache but remains unknown to remote services.
+	 * @param entityClass The class to clear.
+	 * @return List of all responses. Contain the class names or "null" if errors occured.
+	 */
+	public List<String> clearRemoteCache(Class<?> entityClass) {
+		List<String> responses = null;
+		try {
+			responses = ServiceLoadBalancer.multicastRESTToOtherServiceInstances(ENDPOINTURI, String.class,
+					client -> clearRemoteCacheREST(client, entityClass));
+		} catch (Exception e) {
+			
+		}
+		return responses;
+	}
+	
+	/**
+	 * Clear only the local Cache for the entity class in question.
+	 * @param entityClass The class to clear.
+	 */
+	public void clearLocalCacheOnly(Class<?> entityClass) {
+		CategoryRepository.REPOSITORY.getEMF().getCache().evict(entityClass);
+	}
+	
+	/**
+	 * Clear only the entire local Cache for all classes.
+	 */
+	public void clearLocalCacheOnly() {
+		CategoryRepository.REPOSITORY.getEMF().getCache().evictAll();
+	}
+	
+	private String clearRemoteCacheREST(RESTClient<String> client, Class<?> entityClass) {
+		WebTarget target = client.getService().path(client.getApplicationURI())
+				.path(client.getEndpointURI());
+		if (entityClass != null) {
+			target = target.path("class").path(entityClass.getName());
+		} else {
+			target = target.path("cache");
+		}
+		Response response = target.request(MediaType.TEXT_PLAIN).delete();
+		String message = null;
+		if (response.getStatus() == 200) {
+			message = response.readEntity(String.class);
+		}
+		response.close();
+		return message;
+	}
+	
+	/**
+	 * Reset the local and all remote EMFs.
+	 * @return List of all responses. Contain the "clearedEMF", or "null" if errors occured.
+	 */
+	public List<String> resetAllEMFs() {
+		resetLocalEMF();
+		return resetRemoteEMFs();
+	}
+	
+	/**
+	 * Reset all remote EMFs.
+	 * @return List of all responses. Contain the "clearedEMF", or "null" if errors occured.
+	 */
+	public List<String> resetRemoteEMFs() {
+		List<String> responses = null;
+		try {
+			responses = ServiceLoadBalancer.multicastRESTToOtherServiceInstances(ENDPOINTURI, String.class,
+					client -> resetRemoteEMF(client));
+		} catch (Exception e) {
+			
+		}
+		return responses;
+	}
+	
+	/**
+	 * Reset the local EMF.
+	 */
+	public void resetLocalEMF() {
+		EMFManager.clearEMF();
+	}
+	
+	private String resetRemoteEMF(RESTClient<String> client) {
+		WebTarget target = client.getEndpointTarget().path("emf");
+		Response response = target.request(MediaType.TEXT_PLAIN).delete();
+		String message = null;
+		if (response.getStatus() == 200) {
+			message = response.readEntity(String.class);
+		}
+		response.close();
+		return message;
+	}
+	
+}
+
+### END FILE ###
+

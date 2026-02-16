@@ -1,0 +1,1471 @@
+### READ-ONLY CONTEXT - DO NOT MODIFY ###
+- Module: teastore-entities / interfaces / dependencies
+- Purpose: Use these files ONLY to understand data structures, method signatures, and dependencies.
+- Warning: Do NOT suggest changes for these files. They are provided for architectural context only.
+
+### CONTEXT FILE: Category.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.entities;
+
+/**
+ * Entity for Category.
+ * @author Joakim von Kistowski
+ *
+ */
+public class Category {
+
+	private long id;
+
+	private String name;
+	private String description;
+	
+	/**
+	 * Create a new and empty category.
+	 */
+	public Category() {
+		//always use the setters when setting variables here
+		//do not access the attributes directly
+	}
+	
+	/**
+	 * Every Entity needs a Copy-Constructor!
+	 * @param category The entity to Copy.
+	 */
+	public Category(Category category) {
+		setId(category.getId());
+		setName(category.getName());
+		setDescription(category.getDescription());
+	}
+	
+	/**
+	 * Get the id (remember that this ID may be incorrect, especially if a separate id was passed).
+	 * @return The id.
+	 */
+	public long getId() {
+		return id;
+	}
+	
+	/**
+	 * For REST use only.
+	 * Sets the ID. Ignored by persistence.
+	 * @param id ID, as passed by the REST API.
+	 */
+	public void setId(long id) {
+		this.id = id;
+	}
+	
+	/**
+	 * Get the name.
+	 * @return The category name.
+	 */
+	public String getName() {
+		return name;
+	}
+	
+	/**
+	 * Set the name.
+	 * @param name The category name.
+	 */
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	/**
+	 * Get the description.
+	 * @return The category description.
+	 */
+	public String getDescription() {
+		return description;
+	}
+	
+	/**
+	 * Set the description.
+	 * @param description The category description.
+	 */
+	public void setDescription(String description) {
+		this.description = description;
+	}
+
+	/* (non-Javadoc)
+	 * @see java.lang.Object#hashCode()
+	 */
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		result = prime * result + (int) (id ^ (id >>> 32));
+		return result;
+	}
+
+	/* (non-Javadoc)
+	 * @see java.lang.Object#equals(java.lang.Object)
+	 */
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+    }
+		Category other = (Category) obj;
+		if (id != other.id) {
+			return false;
+    }
+		return true;
+  }
+
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: ImageSize.java ###
+package tools.descartes.teastore.entities;
+
+/**
+ * Available store image sizes.
+ * 
+ * @author Norbert Schmitt
+ *
+ */
+public class ImageSize {
+
+  /**
+   * Divider string.
+   */
+  public static final String IMAGE_SIZE_DIVIDER = "x";
+
+  /**
+   * Image width.
+   */
+  private int width;
+
+  /**
+   * Image height.
+   */
+  private int height;
+
+  /**
+   * Default constructor.
+   */
+  public ImageSize() {
+  }
+
+  /**
+   * Constructor with variable width and height.
+   * 
+   * @param width
+   *          imageWidth
+   * @param height
+   *          imageHeight
+   */
+  public ImageSize(int width, int height) {
+    setWidth(width);
+    setHeight(height);
+  }
+
+  /**
+   * Constructor with ImageSize object.
+   * 
+   * @param size
+   *          ImageSize object
+   */
+  public ImageSize(ImageSize size) {
+    setWidth(size.getWidth());
+    setHeight(size.getHeight());
+  }
+
+  /**
+   * Getter for image width.
+   * @return image width
+   */
+  public int getWidth() {
+    return width;
+  }
+
+  /**
+   * Setter for image width.
+   * @param width image width
+   */
+  public void setWidth(int width) {
+    if (width <= 0) {
+      throw new IllegalArgumentException("Image width cannot be zero or negative.");
+    }
+    this.width = width;
+  }
+
+  /**
+   * Getter for image height.
+   * @return image height.
+   */
+  public int getHeight() {
+    return height;
+  }
+
+  /**
+   * Setter for image height.
+   * @param height image height
+   */
+  public void setHeight(int height) {
+    if (height <= 0) {
+      throw new IllegalArgumentException("Image height cannot be zero or negative.");
+    }
+    this.height = height;
+  }
+
+  /**
+   * Calculates number of pixels of an image.
+   * @return number of pixels
+   */
+  public int getPixelCount() {
+    return width * height;
+  }
+
+  /**
+   * Parses from String.
+   * @param str String to pars from
+   * @return ImageSize object
+   */
+  public static ImageSize parseImageSize(String str) {
+    if (str == null) {
+      throw new NullPointerException("Supplied string is null.");
+    }
+    if (str.isEmpty()) {
+      throw new IllegalArgumentException("Supplied string is empty.");
+    }
+
+    String[] tmp = str.trim().split(IMAGE_SIZE_DIVIDER);
+    if (tmp.length != 2) {
+      throw new IllegalArgumentException("Malformed string supplied. Does not contain exactly two size "
+          + "values divided by \"" + IMAGE_SIZE_DIVIDER + "\".");
+    }
+
+    int width = 0;
+    int height = 0;
+
+    try {
+      width = Integer.parseInt(tmp[0].trim());
+      height = Integer.parseInt(tmp[1].trim());
+    } catch (NumberFormatException parseException) {
+      throw new IllegalArgumentException("Malformed string supplied. Cannot parse size values.");
+    }
+
+    return new ImageSize(width, height);
+  }
+
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + height;
+    result = prime * result + width;
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+
+    ImageSize other = (ImageSize) obj;
+    if (height != other.height) {
+      return false;
+    }
+    if (width != other.width) {
+      return false;
+    }
+    return true;
+  }
+
+  @Override
+  public String toString() {
+    return String.valueOf(width) + IMAGE_SIZE_DIVIDER + String.valueOf(height);
+  }
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: ImageSizePreset.java ###
+package tools.descartes.teastore.entities;
+
+/**
+ * 
+ * @author Simon
+ *
+ */
+public enum ImageSizePreset {
+  /**
+   * Website icon.
+   */
+	ICON(new ImageSize(64, 64)),
+	/**
+	 * Developer portraits.
+	 */
+	PORTRAIT(new ImageSize(160, 240)),
+	/**
+	 * Descartes logo.
+	 */
+	LOGO(new ImageSize(600, 195)),
+	/**
+	 * Main image.
+	 */
+	MAIN_IMAGE(new ImageSize(400, 310)),
+	/**
+	 * preview image size.
+	 */
+	PREVIEW(new ImageSize(64, 64)),
+	/**
+	 * Recommender image.
+	 */
+	RECOMMENDATION(new ImageSize(125, 125)),
+	/**
+	 * Full size product image.
+	 */
+	FULL(new ImageSize(300, 300)),
+	/**
+	 * Error images.
+	 */
+	ERROR(new ImageSize(600, 400)),
+	/**
+	 * Index image sizes.
+	 */
+	INDEX(new ImageSize(600, 450));
+
+  /**
+   * Set standard image size to FULL.
+   */
+	public static final ImageSize STD_IMAGE_SIZE = FULL.getSize();
+	
+	/**
+	 * Image size.
+	 */
+	private final ImageSize size;
+	
+	/**
+	 * Constructor.
+	 * @param size ImageSize
+	 */
+	private ImageSizePreset(ImageSize size) {
+		this.size = size;
+	}
+	
+	/**
+	 * Getter for image size.
+	 * @return image size
+	 */
+	public ImageSize getSize() {
+		return size;
+	}
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: Order.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.entities;
+
+/**
+ * Entity for orders.
+ * 
+ * @author Joakim von Kistowski
+ *
+ */
+public class Order {
+
+  private long id;
+  private long userId;
+  private String time;
+
+  private long totalPriceInCents;
+  private String addressName;
+  private String address1;
+  private String address2;
+
+  private String creditCardCompany;
+  private String creditCardNumber;
+  private String creditCardExpiryDate;
+
+  /**
+   * Create a new and empty order.
+   */
+  public Order() {
+
+  }
+
+  /**
+   * Every entity needs a copy constructor.
+   * 
+   * @param order
+   *          The order to copy.
+   */
+  public Order(Order order) {
+    setId(order.getId());
+    setUserId(order.getUserId());
+    setTime(order.getTime());
+    setTotalPriceInCents(order.getTotalPriceInCents());
+    setAddressName(order.getAddressName());
+    setAddress1(order.getAddress1());
+    setAddress2(order.getAddress2());
+    setCreditCardCompany(order.getCreditCardCompany());
+    setCreditCardNumber(order.getCreditCardNumber());
+    setCreditCardExpiryDate(order.getCreditCardExpiryDate());
+  }
+
+  /**
+   * Get the id (remember that this ID may be incorrect, especially if a separate id was passed).
+   * 
+   * @return The id.
+   */
+  public long getId() {
+    return id;
+  }
+
+  /**
+   * For REST use only. Sets the ID. Ignored by persistence.
+   * 
+   * @param id
+   *          ID, as passed by the REST API.
+   */
+  public void setId(long id) {
+    this.id = id;
+  }
+
+  /**
+   * Get the User id.
+   * 
+   * @return the userId.
+   */
+  public long getUserId() {
+    return userId;
+  }
+
+  /**
+   * Set the User Id.
+   * 
+   * @param userId
+   *          the userId to set.
+   */
+  public void setUserId(long userId) {
+    this.userId = userId;
+  }
+
+  /**
+   * Get the time of order (ISO formatted). Formatted using {@link DateTimeFormatter.ISO_LOCAL_DATE_TIME}.
+   * 
+   * @return the time.
+   */
+  public String getTime() {
+    return time;
+  }
+
+  /**
+   * Set the time of order (ISO formatted). Format using {@link DateTimeFormatter.ISO_LOCAL_DATE_TIME}.
+   * 
+   * @param time
+   *          the time to set.
+   */
+  public void setTime(String time) {
+    this.time = time;
+  }
+
+  /**
+   * Get the total price in cents.
+   * 
+   * @return the totalPriceInCents.
+   */
+  public long getTotalPriceInCents() {
+    return totalPriceInCents;
+  }
+
+  /**
+   * Set the total price in cents.
+   * 
+   * @param totalPriceInCents
+   *          the totalPriceInCents to set.
+   */
+  public void setTotalPriceInCents(long totalPriceInCents) {
+    this.totalPriceInCents = totalPriceInCents;
+  }
+
+  /**
+   * Get the name for the address.
+   * 
+   * @return the addressName.
+   */
+  public String getAddressName() {
+    return addressName;
+  }
+
+  /**
+   * Set the name for the address.
+   * 
+   * @param addressName
+   *          the addressName to set.
+   */
+  public void setAddressName(String addressName) {
+    this.addressName = addressName;
+  }
+
+  /**
+   * Get address line 1.
+   * 
+   * @return the address1.
+   */
+  public String getAddress1() {
+    return address1;
+  }
+
+  /**
+   * Set address line 1.
+   * 
+   * @param address1
+   *          the address1 to set.
+   */
+  public void setAddress1(String address1) {
+    this.address1 = address1;
+  }
+
+  /**
+   * Get address line 2.
+   * 
+   * @return the address2.
+   */
+  public String getAddress2() {
+    return address2;
+  }
+
+  /**
+   * Set address line 2.
+   * 
+   * @param address2
+   *          the address2 to set.
+   */
+  public void setAddress2(String address2) {
+    this.address2 = address2;
+  }
+
+  /**
+   * Get the name of the credit card company.
+   * 
+   * @return the creditCardCompany.
+   */
+  public String getCreditCardCompany() {
+    return creditCardCompany;
+  }
+
+  /**
+   * Set the name of the credit card company.
+   * 
+   * @param creditCardCompany
+   *          the creditCardCompany to set.
+   */
+  public void setCreditCardCompany(String creditCardCompany) {
+    this.creditCardCompany = creditCardCompany;
+  }
+
+  /**
+   * Get the credit card number.
+   * 
+   * @return the creditCardNumber.
+   */
+  public String getCreditCardNumber() {
+    return creditCardNumber;
+  }
+
+  /**
+   * Set the credit card number.
+   * 
+   * @param creditCardNumber
+   *          the creditCardNumber to set.
+   */
+  public void setCreditCardNumber(String creditCardNumber) {
+    this.creditCardNumber = creditCardNumber;
+  }
+
+  /**
+   * Get the credit card expiry date (ISO formatted). Formatted using {@link DateTimeFormatter.ISO_LOCAL_DATE}.
+   * 
+   * @return the creditCardExpiryDate.
+   */
+  public String getCreditCardExpiryDate() {
+    return creditCardExpiryDate;
+  }
+
+  /**
+   * Set the credit card expiry date (ISO formatted). Format using {@link DateTimeFormatter.ISO_LOCAL_DATE}.
+   * 
+   * @param creditCardExpiryDate
+   *          the creditCardExpiryDate to set.
+   */
+  public void setCreditCardExpiryDate(String creditCardExpiryDate) {
+    this.creditCardExpiryDate = creditCardExpiryDate;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#hashCode()
+   */
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + (int) (id ^ (id >>> 32));
+    result = prime * result + (int) (userId ^ (userId >>> 32));
+    return result;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#equals(java.lang.Object)
+   */
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    Order other = (Order) obj;
+    if (id != other.id) {
+      return false;
+    }
+    if (userId != other.userId) {
+      return false;
+    }
+    return true;
+  }
+
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: OrderItem.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.entities;
+
+/**
+ * Entity Class for OrderItems (item with quantity in shopping cart or order).
+ * 
+ * @author Joakim von Kistowski
+ *
+ */
+public class OrderItem {
+
+  private long id;
+  private long productId;
+  private long orderId;
+  private int quantity;
+  private long unitPriceInCents;
+
+  /**
+   * Create a new and empty OrderItem.
+   */
+  public OrderItem() {
+
+  }
+
+  /**
+   * Every Entity needs a Copy-Constructor!
+   * 
+   * @param orderItem
+   *          The entity to Copy.
+   */
+  public OrderItem(OrderItem orderItem) {
+    setId(orderItem.getId());
+    setProductId(orderItem.getProductId());
+    setOrderId(orderItem.getOrderId());
+    setQuantity(orderItem.getQuantity());
+    setUnitPriceInCents(orderItem.getUnitPriceInCents());
+  }
+
+  /**
+   * Get the id (remember that this ID may be incorrect, especially if a separate id was passed).
+   * 
+   * @return The id.
+   */
+  public long getId() {
+    return id;
+  }
+
+  /**
+   * For REST use only. Sets the ID. Ignored by persistence.
+   * 
+   * @param id
+   *          ID, as passed by the REST API.
+   */
+  public void setId(long id) {
+    this.id = id;
+  }
+
+  /**
+   * ID of the order item's product.
+   * 
+   * @return Product Id;
+   */
+  public long getProductId() {
+    return productId;
+  }
+
+  /**
+   * Sets the ID of the order item's product. Every order Item MUST have a valid product ID.
+   * 
+   * @param productId
+   *          The product ID to set.
+   */
+  public void setProductId(long productId) {
+    this.productId = productId;
+  }
+
+  /**
+   * Get the quantity (amount in shopping cart/order).
+   * 
+   * @return The quantity.
+   */
+  public int getQuantity() {
+    return quantity;
+  }
+
+  /**
+   * Set the quantity (amount in shopping cart/order).
+   * 
+   * @param quantity
+   *          The quantity.
+   */
+  public void setQuantity(int quantity) {
+    this.quantity = quantity;
+  }
+
+  /**
+   * The price per single item in the order item.
+   * 
+   * @return Price per single item.
+   */
+  public long getUnitPriceInCents() {
+    return unitPriceInCents;
+  }
+
+  /**
+   * Set the price per single item in the order item.
+   * 
+   * @param unitPriceInCents
+   *          Price per single item.
+   */
+  public void setUnitPriceInCents(long unitPriceInCents) {
+    this.unitPriceInCents = unitPriceInCents;
+  }
+
+  /**
+   * Gets the ID of the order item's order.
+   * 
+   * @return The order ID.
+   */
+  public long getOrderId() {
+    return orderId;
+  }
+
+  /**
+   * Sets the ID of the order item's order. Persistence requires that every order item MUST have a valid order ID. For
+   * persistence the order must already exist in database.
+   * 
+   * @param orderId
+   *          The order ID to set.
+   */
+  public void setOrderId(long orderId) {
+    this.orderId = orderId;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#hashCode()
+   */
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + (int) (id ^ (id >>> 32));
+    result = prime * result + (int) (orderId ^ (orderId >>> 32));
+    result = prime * result + (int) (productId ^ (productId >>> 32));
+    return result;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#equals(java.lang.Object)
+   */
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    OrderItem other = (OrderItem) obj;
+    if (id != other.id) {
+      return false;
+    }
+    if (orderId != other.orderId) {
+      return false;
+    }
+    if (productId != other.productId) {
+      return false;
+    }
+    return true;
+  }
+
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: Product.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.entities;
+
+/**
+ * Entity for Products.
+ * 
+ * @author Joakim von Kistowski
+ *
+ */
+public class Product {
+
+  private long id;
+
+  private long categoryId;
+  private String name;
+  private String description;
+  private long listPriceInCents;
+
+  /**
+   * Create a new and empty Product.
+   */
+  public Product() {
+    // always use the setters when setting variables here
+    // do not access the attributes directly
+  }
+
+  /**
+   * Every Entity needs a Copy-Constructor!
+   * 
+   * @param product
+   *          The entity to Copy.
+   */
+  public Product(Product product) {
+    setId(product.getId());
+    setCategoryId(product.getCategoryId());
+    setName(product.getName());
+    setDescription(product.getDescription());
+    setListPriceInCents(product.getListPriceInCents());
+  }
+
+  /**
+   * Get the id (remember that this ID may be incorrect, especially if a separate id was passed).
+   * 
+   * @return The id.
+   */
+  public long getId() {
+    return id;
+  }
+
+  /**
+   * For REST use only. Sets the product ID. Ignored by persistence.
+   * 
+   * @param id
+   *          Product ID, as passed by the REST API.
+   */
+  public void setId(long id) {
+    this.id = id;
+  }
+
+  /**
+   * Set the ID of the product's category.
+   * 
+   * @return The category id.
+   */
+  public long getCategoryId() {
+    return categoryId;
+  }
+
+  /**
+   * For REST use only. Sets the category ID. Ignored by persistence.
+   * 
+   * @param categoryId
+   *          Category ID, as passed by the REST API.
+   */
+  public void setCategoryId(long categoryId) {
+    this.categoryId = categoryId;
+  }
+
+  /**
+   * Get the name.
+   * 
+   * @return The product name.
+   */
+  public String getName() {
+    return name;
+  }
+
+  /**
+   * Set the name.
+   * 
+   * @param name
+   *          The product name.
+   */
+  public void setName(String name) {
+    this.name = name;
+  }
+
+  /**
+   * Get the description.
+   * 
+   * @return The product description.
+   */
+  public String getDescription() {
+    return description;
+  }
+
+  /**
+   * Set the description.
+   * 
+   * @param description
+   *          The product description.
+   */
+  public void setDescription(String description) {
+    this.description = description;
+  }
+
+  /**
+   * Get the product list price (recommended price per unit) in cents.
+   * 
+   * @return The list price in cents.
+   */
+  public long getListPriceInCents() {
+    return listPriceInCents;
+  }
+
+  /**
+   * For REST use only. Sets the product price in cents. Ignored by persistence.
+   * 
+   * @param listPriceInCents
+   *          The price in cents, as passed by the REST API.
+   */
+  public void setListPriceInCents(long listPriceInCents) {
+    this.listPriceInCents = listPriceInCents;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#hashCode()
+   */
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + (int) (categoryId ^ (categoryId >>> 32));
+    result = prime * result + (int) (id ^ (id >>> 32));
+    return result;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#equals(java.lang.Object)
+   */
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    Product other = (Product) obj;
+    if (categoryId != other.categoryId) {
+      return false;
+    }
+    if (id != other.id) {
+      return false;
+    }
+    return true;
+  }
+
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: User.java ###
+/**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package tools.descartes.teastore.entities;
+
+/**
+ * User for the pet supply store.
+ * 
+ * @author Joakim von Kistowski
+ *
+ */
+public class User {
+
+  private long id;
+  private String userName;
+  private String password;
+  private String realName;
+  private String email;
+
+  /**
+   * Create a new and empty user.
+   */
+  public User() {
+
+  }
+
+  /**
+   * Every entity needs a copy constructor.
+   * 
+   * @param user
+   *          The user to copy.
+   */
+  public User(User user) {
+    setId(user.getId());
+    setUserName(user.getUserName());
+    setPassword(user.getPassword());
+    setRealName(user.getRealName());
+    setEmail(user.getEmail());
+  }
+
+  /**
+   * Get the id (remember that this ID may be incorrect, especially if a separate id was passed).
+   * 
+   * @return The id.
+   */
+  public long getId() {
+    return id;
+  }
+
+  /**
+   * For REST use only. Sets the ID. Ignored by persistence.
+   * 
+   * @param id
+   *          ID, as passed by the REST API.
+   */
+  public void setId(long id) {
+    this.id = id;
+  }
+
+  /**
+   * Get the Username.
+   * 
+   * @return the userName.
+   */
+  public String getUserName() {
+    return userName;
+  }
+
+  /**
+   * Set the username, should only be set at creation.
+   * 
+   * @param userName
+   *          the userName to set.
+   */
+  public void setUserName(String userName) {
+    this.userName = userName;
+  }
+
+  /**
+   * Get the password hash.
+   * 
+   * @return the password hash.
+   */
+  public String getPassword() {
+    return password;
+  }
+
+  /**
+   * Set the password hash.
+   * 
+   * @param password
+   *          the password hash to set.
+   */
+  public void setPassword(String password) {
+    this.password = password;
+  }
+
+  /**
+   * Get the user's real name.
+   * 
+   * @return the realName.
+   */
+  public String getRealName() {
+    return realName;
+  }
+
+  /**
+   * Set the user's real name.
+   * 
+   * @param realName
+   *          the realName to set.
+   */
+  public void setRealName(String realName) {
+    this.realName = realName;
+  }
+
+  /**
+   * Get the user's email address.
+   * 
+   * @return the email.
+   */
+  public String getEmail() {
+    return email;
+  }
+
+  /**
+   * Set the user's email address.
+   * 
+   * @param email
+   *          the email to set.
+   */
+  public void setEmail(String email) {
+    this.email = email;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#hashCode()
+   */
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result = prime * result + (int) (id ^ (id >>> 32));
+    if (userName == null) {
+      result = prime * result + 0;
+    } else {
+      result = prime * result + userName.hashCode();
+    }
+    return result;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see java.lang.Object#equals(java.lang.Object)
+   */
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    User other = (User) obj;
+    if (id != other.id) {
+      return false;
+    }
+    if (userName == null) {
+      if (other.userName != null) {
+        return false;
+      }
+    } else {
+      if (!userName.equals(other.userName)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: message\SessionBlob.java ###
+package tools.descartes.teastore.entities.message;
+
+import java.util.LinkedList;
+import java.util.List;
+
+import tools.descartes.teastore.entities.Order;
+import tools.descartes.teastore.entities.OrderItem;
+
+/**
+ * Blob containing all information about the user session.
+ * @author Simon
+ */
+public class SessionBlob {
+
+	private Long uid;
+	private String sid;
+	private String token;
+	private Order order;
+	private List<OrderItem> orderItems = new LinkedList<OrderItem>();
+	private String message;
+	
+	/**
+	 * Constructor, creates an empty order.
+	 */
+	public SessionBlob() {
+		this.setOrder(new Order());
+	}
+
+	/**
+	 * Getter for the userid.
+	 * @return userid
+	 */
+	public Long getUID() {
+		return uid;
+	}
+
+	/**
+	 * Setter for the userid.
+	 * @param uID userid
+	 */
+	public void setUID(Long uID) {
+		uid = uID;
+	}
+
+	/**
+	 * Getter for session id.
+	 * @return session id
+	 */
+	public String getSID() {
+		return sid;
+	}
+
+	/**
+	 * Setter for session id.
+	 * @param sID session id
+	 */
+	public void setSID(String sID) {
+		sid = sID;
+	}
+
+	/**
+	 * Getter for trust token.
+	 * @return trust token
+	 */
+	public String getToken() {
+		return token;
+	}
+
+	/**
+	 * Setter for trust token.
+	 * @param token trust token.
+	 */
+	public void setToken(String token) {
+		this.token = token;
+	}
+	
+	/**
+	 * Setter for the message.
+	 * @param message String
+	 */
+	public void setMessage(String message) {
+		this.message = message;
+	}
+	
+	/**
+	 * Getter for the message.
+	 * @return message
+	 */
+	public String getMessage() {
+		return message;
+	}
+
+	/**
+	 * Getter for order.
+	 * @return order
+	 */
+	public Order getOrder() {
+		return order;
+	}
+
+	/**
+	 * Setter for order.
+	 * @param order order
+	 */
+	public void setOrder(Order order) {
+		this.order = order;
+	}
+
+	/**
+	 * Getter for order items.
+	 * @return order items.
+	 */
+	public List<OrderItem> getOrderItems() {
+		return orderItems;
+	}
+
+	/**
+	 * Setter for order items.
+	 * @param orderItems list of order items
+	 */
+	public void setOrderItems(List<OrderItem> orderItems) {
+		this.orderItems = orderItems;
+	}
+}
+
+### END CONTEXT FILE ###
+
+### CONTEXT FILE: pom.xml ###
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<artifactId>recommender</artifactId>
+	<packaging>war</packaging>
+	<name>TeaStore Recommender</name>
+	<url>http://descartes.tools</url>
+
+	<properties>
+		<maven.compiler.source>11</maven.compiler.source>
+		<maven.compiler.target>11</maven.compiler.target>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	</properties>
+	<dependencies>
+		<!-- Internal Dependencies -->
+		<dependency>
+			<groupId>tools.descartes.teastore</groupId>
+			<artifactId>registryclient</artifactId>
+			<version>${teastoreversion}</version>
+		</dependency>
+		<dependency>
+			<groupId>tools.descartes.teastore</groupId>
+			<artifactId>kieker.probes</artifactId>
+			<version>${teastoreversion}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>jakarta.activation</groupId>
+			<artifactId>jakarta.activation-api</artifactId>
+			<version>2.0.1</version>
+		</dependency>
+
+		<!-- Dependencies only needed for compilation -->
+		<dependency>
+			<groupId>jakarta.platform</groupId>
+			<artifactId>jakarta.jakartaee-api</artifactId>
+			<version>9.0.0</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<!-- Test Dependencies -->
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.13.1</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<finalName>tools.descartes.teastore.recommender</finalName>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>2.22.2</version>
+				<configuration>
+					<reuseForks>false</reuseForks>
+					<forkCount>1</forkCount>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+	<parent>
+		<groupId>tools.descartes.teastore</groupId>
+		<artifactId>parent</artifactId>
+		<version>${teastoreversion}</version>
+		<relativePath>../..</relativePath>
+	</parent>
+</project>
+
+### END CONTEXT FILE ###
+
