@@ -50,7 +50,10 @@ C) Justification: One sentence per file identifying the trigger (e.g., Multi-Res
 STOP. Only provide the list and analysis. Do not generate code yet.
 
 
-IMPLEMENTATION PHASE (TURN 2):
+## 🟡 Phase 2: Implementation (Turn 2)
+**Objective:** To execute the refactoring plan strictly within the boundaries of the existing files.
+**Prompt:**
+```text
 Approved. Implement the refactoring within the original file boundaries.
 
 Follow this STRICT format for every change:
@@ -67,7 +70,10 @@ RULES:
 · Maintain absolute API stability.
 
 
-VERIFICATION & DOCUMENTATION PHASE (TURN 3):
+## 🔴 Phase 3: Verification & Documentation (Turn 3)
+**Objective:** To perform a self-audit of the generated code and generate a technical summary of the improvements.
+**Prompt:**
+```text
 Review your provided code snippets.
 
 1. SELF-AUDIT: Check for missing imports or syntax errors. Ensure ZERO new files were created and all extracted logic is properly encapsulated (private).
