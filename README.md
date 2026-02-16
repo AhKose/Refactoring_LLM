@@ -8,7 +8,7 @@ It contains the experimental datasets, the subject selection criteria based on e
 
 Large Language Models (LLMs) are increasingly used in software engineering, raising the question of whether they can reliably support refactoring in microservice‑based systems. This study empirically examines LLM‑driven refactoring using a structured, three‑phase prompting protocol applied to **four microservices specifically selected for their low maintainability.**
 
-The selection was based on a prior ground-truth dataset where three senior developers labeled microservices as Low, Medium, or High maintainability. Using this "Low" subset, three models—**GPT‑5.2 Extended Thinking**, **Claude Opus 4.5**, and **Gemini 3 Pro**—were evaluated. Of twelve total refactoring experiments, eleven successfully passed build and run verification. The findings indicate that LLM‑driven, developer‑assisted refactoring can produce measurable improvements in code complexity and maintainability.
+The selection was based on a prior ground-truth dataset where three senior developers labeled microservices as Low, Medium, or High maintainability. Using this "Low" subset, three models, **GPT‑5.2 Extended Thinking**, **Claude Opus 4.5**, and **Gemini 3 Pro**, were evaluated. Of twelve total refactoring experiments, eleven successfully passed build and run verification. The findings indicate that LLM‑driven, developer‑assisted refactoring can produce measurable improvements in code complexity and maintainability.
 
 ---
 
@@ -81,4 +81,4 @@ The study evaluated **12 service–model refactoring outcomes** (4 Services × 3
 
 ## ✉️ Contact & Citation
 
-If you utilize this dataset or replication package in your research, please refer to the associated workshop paper. For inquiries regarding dataset integrity, please open an Issue in this repository.
+If you utilize this dataset or replication package in your research, please refer to the associated workshop paper "Ref_and_Name_of_Study". For inquiries regarding dataset integrity, please open an Issue in this repository.
