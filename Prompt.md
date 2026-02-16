@@ -48,3 +48,28 @@ B) Format: ### FILE: <path>
 C) Justification: One sentence per file identifying the trigger (e.g., Multi-Responsibility Method) and the intended internal technique.
 
 STOP. Only provide the list and analysis. Do not generate code yet.
+
+
+IMPLEMENTATION PHASE (TURN 2):
+Approved. Implement the refactoring within the original file boundaries.
+
+Follow this STRICT format for every change:
+1. File Header: ### FILE: <path>
+2. Change Description: Explain the internal refactoring (e.g., "Refactoring a Multi-Responsibility method into private helper methods to improve internal cohesion").
+3. Location: Specify the Approximate Line Number in the original file.
+4. Comparison Blocks:
+   · ORIGINAL CODE: Provide the existing block.
+   · REFACTORED CODE: Provide the new, updated block (including any private methods or package-private classes added to the file).
+
+RULES:
+· Do NOT provide the full file.
+· Ensure all new logic is private to reduce coupling.
+· Maintain absolute API stability.
+
+
+VERIFICATION & DOCUMENTATION PHASE (TURN 3):
+Review your provided code snippets.
+
+1. SELF-AUDIT: Check for missing imports or syntax errors. Ensure ZERO new files were created and all extracted logic is properly encapsulated (private).
+2. JUSTIFICATION: Explain technically why this internal refactoring makes the code "better" and reduces internal coupling without breaking the API.
+3. SUMMARY: Provide a 5-point summary of the improvements made to maintainability and readability.
