@@ -13,7 +13,7 @@
   <tbody>
     <tr>
       <td rowspan="6">
-        <a href="[https://github.com/DescartesResearch/TeaStore](https://github.com/DescartesResearch/TeaStore)">TeaStore</a></td>
+        <a a href="https://github.com/DescartesResearch/TeaStore">TeaStore</a></td>
       <td>1</td>
       <td>auth (s1)</td>
       <td align="center">L</td>
@@ -63,7 +63,7 @@
     </tr>
     <tr>
       <td rowspan="8">
-        <a href="[https://github.com/aelkz/microservices-observability](https://github.com/aelkz/microservices-observability)">Microservices-<br>observability</a></td>
+        <a href="https://github.com/aelkz/microservices-observability">Microservices-<br>observability</a></td>
       <td>7</td>
       <td>Calendar_Integration</td>
       <td align="center">M</td>
