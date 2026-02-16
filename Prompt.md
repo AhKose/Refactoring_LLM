@@ -48,7 +48,7 @@ B) Format: ### FILE: <path>
 C) Justification: One sentence per file identifying the trigger (e.g., Multi-Responsibility Method) and the intended internal technique.
 
 STOP. Only provide the list and analysis. Do not generate code yet.
-
+```
 
 ## 🟡 Phase 2: Implementation (Turn 2)
 **Objective:** To execute the refactoring plan strictly within the boundaries of the existing files.
@@ -68,7 +68,7 @@ RULES:
 · Do NOT provide the full file.
 · Ensure all new logic is private to reduce coupling.
 · Maintain absolute API stability.
-
+```
 
 ## 🔴 Phase 3: Verification & Documentation (Turn 3)
 **Objective:** To perform a self-audit of the generated code and generate a technical summary of the improvements.
@@ -79,3 +79,4 @@ Review your provided code snippets.
 1. SELF-AUDIT: Check for missing imports or syntax errors. Ensure ZERO new files were created and all extracted logic is properly encapsulated (private).
 2. JUSTIFICATION: Explain technically why this internal refactoring makes the code "better" and reduces internal coupling without breaking the API.
 3. SUMMARY: Provide a 5-point summary of the improvements made to maintainability and readability.
+```
