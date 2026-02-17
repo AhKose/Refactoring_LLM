@@ -27,12 +27,12 @@ Documents the **3-Stage Chain-of-Thought Prompting Strategy** utilized in the st
 * **Turn 2:** Refactoring Implementation (Code Generation).
 * **Turn 3:** Self-Audit & Justification.
 
-### 3. 📥 `LLM_Input/` (Context & Targets)
+### 3. 📥 `Input_Files/` (Context & Targets)
 Contains the source artifacts prepared for the LLM context window.
 * **Content:** Automated aggregation of `.java` files from the "Low Maintainability" microservices.
 * **Structure:** Includes both target files (for refactoring) and read-only context files (for dependency awareness).
 
-### 4. 📤 `LLM_Outputs/` (Refactored Artifacts)
+### 4. 📤 `Refactored_Files/` (Refactored Artifacts)
 Contains the **final state of the source code** after the manual integration of LLM suggestions.
 * **Content:** These are **NOT** raw chat logs. Instead, they are the valid Java source files where the code changes proposed by the LLMs (in Turn 2) have been **manually applied** to the specific files requiring refactoring.
 * **Purpose:** These files represent the "Post-Refactoring" state used for metric calculation and testing.
