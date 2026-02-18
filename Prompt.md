@@ -54,7 +54,7 @@ STOP. Only provide the list and analysis. Do not generate code yet.
 **Objective:** To execute the refactoring plan strictly within the boundaries of the existing files.
 **Prompt:**
 ```text
-Approved. Implement the refactoring within the original file boundaries.
+Approved. Implement these refactorings that are listed within the original file boundaries.
 
 Follow this STRICT format for every change:
 1. File Header: ### FILE: <path>
