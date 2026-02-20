@@ -6,7 +6,6 @@ This directory exclusively contains the specific microservice files that were id
 
 The summary table below illustrates the specific files targeted for refactoring by three different models (Claude, GPT, and Gemini) across two independent trials, categorized by their respective services (Image, Persistence, Recommender, and Reactive_Calender).
 
----
 ## Selection Legend:
 To highlight the consensus and variance among the different LLMs, the targeted files are color-coded as follows:
 
