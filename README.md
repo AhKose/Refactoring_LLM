@@ -81,4 +81,4 @@ The study evaluated **12 service–model refactoring outcomes** (4 Services × 3
 
 ## ✉️ Contact & Citation
 
-If you utilize this dataset or replication package in your research, please refer to the associated workshop paper "Ref_and_Name_of_Study". For inquiries regarding dataset integrity, please open an Issue in this repository.
+For inquiries regarding dataset integrity, please open an Issue in this repository.
