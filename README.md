@@ -68,14 +68,14 @@ Following integration, each refactored microservice underwent a mandatory verifi
 
 ## 📊 Key Findings
 
-The study evaluated **12 service–model refactoring outcomes** (4 Services × 3 Models).
+The study evaluated **24 service–model refactoring outcomes** (4 Services × 3 Models × Trials).
 
-* **Reliability:** **11 out of 12** refactored services successfully passed the build and runtime verification pipeline.
+* **Reliability:** **22 out of 24** refactored services successfully passed the build and runtime verification pipeline.
 * **Metric Improvements:**
-    * **Cognitive Complexity (Max):** Reduced by approx. **50%**.
-    * **Cyclomatic Complexity (Max):** Reduced by approx. **30%**.
-    * **Code Duplication:** Decreased by **7.5%**.
-    * **Code Size:** LOC increased by ~6.4% due to the extraction of private helper methods (decomposition strategy).
+    * **Cognitive Complexity (Max):** Reduced by approx. **45%**.
+    * **Cyclomatic Complexity (Max):** Reduced by approx. **31%**.
+    * **Code Duplication:** Decreased by **9%**.
+    * **Code Size:** LOC increased by ~6% due to the extraction of private helper methods (decomposition strategy).
 
 ---
 
