@@ -75,7 +75,7 @@ The study evaluated **24 service–model refactoring outcomes** (4 Services × 3
     * **Cognitive Complexity (Max):** Reduced by approx. **45%**.
     * **Cyclomatic Complexity (Max):** Reduced by approx. **31%**.
     * **Code Duplication:** Decreased by **9%**.
-    * **Code Size:** LOC increased by ~6% due to the extraction of private helper methods (decomposition strategy).
+    * **Code Size:** LOC increased by **~6%** due to the extraction of private helper methods (decomposition strategy).
 
 ---
 
