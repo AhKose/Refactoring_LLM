@@ -1,6 +1,6 @@
 # Replication Package: Empirical Analysis of LLM-Driven Refactoring for Microservices
 
-This repository serves as the replication package for the study titled **"An Empirical Analysis of LLM-Driven Refactoring for Microservice Systems."**
+This repository serves as the replication package for the study titled **"An Empirical Analysis of LLM-Driven Refactoring for Microservices."**
 
 It contains the experimental datasets, the subject selection criteria based on expert labeling, the 3-phase prompting protocol, and the final refactored code artifacts resulting from the integration of Large Language Model (LLM) suggestions.
 
